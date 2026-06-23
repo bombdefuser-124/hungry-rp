@@ -188,6 +188,7 @@ function renderSettings(panelTitle, panelSubtitle, panelActions, panelBody) {
     <div class="panel-section">
       <div class="section-title">|- Reasoning</div>
       ${toggleLine('settingReasoningExpanded', 'Always expand reasoning', state.settings.reasoningAlwaysExpanded)}
+      ${state.settings.reasoningAlwaysExpanded ? toggleLine('settingReasoningCollapseWhenClosed', 'Collapse when reasoning closes', state.settings.reasoningCollapseWhenClosed) : ''}
       ${panelField('Start tag', 'settingReasoningStart', state.settings.reasoningStartTag)}
       ${panelField('End tag', 'settingReasoningEnd', state.settings.reasoningEndTag)}
       <div class="panel-note">Default reasoning uses &lt;think&gt; and &lt;/think&gt;. If a stream only emits the end tag, everything before it is moved into a reasoning block and visible streaming continues.</div>
@@ -305,6 +306,7 @@ function bindSettingsPanel() {
       compactCards: document.getElementById('settingCompactCards').checked,
       alwaysShowActions: document.getElementById('settingAlwaysShowActions').checked,
       reasoningAlwaysExpanded: document.getElementById('settingReasoningExpanded').checked,
+      reasoningCollapseWhenClosed: document.getElementById('settingReasoningCollapseWhenClosed')?.checked || false,
       reasoningStartTag: document.getElementById('settingReasoningStart').value || '<think>',
       reasoningEndTag: document.getElementById('settingReasoningEnd').value || '</think>',
       dialogueColor: dialogue,
@@ -313,8 +315,11 @@ function bindSettingsPanel() {
     applySettings();
   };
 
-  ['settingShowImages', 'settingCompactCards', 'settingAlwaysShowActions', 'settingReasoningExpanded', 'settingReasoningStart', 'settingReasoningEnd'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', save);
+  ['settingShowImages', 'settingCompactCards', 'settingAlwaysShowActions', 'settingReasoningExpanded', 'settingReasoningCollapseWhenClosed', 'settingReasoningStart', 'settingReasoningEnd'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', async () => {
+      await save();
+      if (id === 'settingReasoningExpanded') renderPanel();
+    });
   });
 
   bindColorPair('dialogueColor', save);

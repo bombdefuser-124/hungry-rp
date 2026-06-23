@@ -296,6 +296,7 @@ export async function generateAssistant() {
   render();
 
   const parser = createReasoningParser(state.settings);
+  let collapsedReasoningAfterClose = false;
   const preserveReasoningCollapse = incomingBlocks => {
     const existing = new Map((assistant.reasoningBlocks || []).map(block => [block.id, block.collapsed]));
     return incomingBlocks.map(block => existing.has(block.id) ? { ...block, collapsed: existing.get(block.id) } : block);
@@ -303,6 +304,13 @@ export async function generateAssistant() {
   const applyStreamingSnapshot = snapshot => {
     assistant.content = snapshot.visible;
     assistant.reasoningBlocks = preserveReasoningCollapse(snapshot.reasoningBlocks);
+  };
+  const collapseClosedReasoningBlocks = snapshot => {
+    if (collapsedReasoningAfterClose) return;
+    if (!state.settings.reasoningAlwaysExpanded || !state.settings.reasoningCollapseWhenClosed) return;
+    if (!snapshot.visible || !(snapshot.reasoningBlocks || []).length) return;
+    collapsedReasoningAfterClose = true;
+    assistant.reasoningBlocks = (assistant.reasoningBlocks || []).map(block => ({ ...block, collapsed: true }));
   };
   let done = false;
   let interrupted = false;
@@ -334,11 +342,15 @@ export async function generateAssistant() {
         state.generationController = controller;
       },
       onReasoningToken: token => {
-        applyStreamingSnapshot(parser.absorbReasoning(token));
+        const snapshot = parser.absorbReasoning(token);
+        applyStreamingSnapshot(snapshot);
+        collapseClosedReasoningBlocks(snapshot);
         scheduleRender();
       },
       onToken: token => {
-        applyStreamingSnapshot(parser.absorb(token));
+        const snapshot = parser.absorb(token);
+        applyStreamingSnapshot(snapshot);
+        collapseClosedReasoningBlocks(snapshot);
         scheduleRender();
       },
       onAbort: () => {

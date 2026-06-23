@@ -60,7 +60,8 @@ export const defaultSettings = {
   alwaysShowActions: false,
   reasoningStartTag: '<think>',
   reasoningEndTag: '</think>',
-  reasoningAlwaysExpanded: false
+  reasoningAlwaysExpanded: false,
+  reasoningCollapseWhenClosed: false
 };
 
 export async function getSettings() {
