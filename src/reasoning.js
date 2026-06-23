@@ -5,7 +5,8 @@ export function createReasoningParser(settings, initial = {}) {
     visible: initial.visible || '',
     blocks: Array.isArray(initial.blocks) ? [...initial.blocks] : [],
     inReasoning: false,
-    current: ''
+    current: '',
+    nativeReasoningBlockId: null
   };
 
   function finishReasoning() {
@@ -16,6 +17,27 @@ export function createReasoningParser(settings, initial = {}) {
     });
     state.current = '';
     state.inReasoning = false;
+  }
+
+  function absorbReasoning(chunk) {
+    if (!chunk) return snapshot();
+
+    let block = state.nativeReasoningBlockId
+      ? state.blocks.find(item => item.id === state.nativeReasoningBlockId)
+      : null;
+
+    if (!block) {
+      block = {
+        id: crypto.randomUUID(),
+        content: '',
+        collapsed: !settings.reasoningAlwaysExpanded
+      };
+      state.blocks.push(block);
+      state.nativeReasoningBlockId = block.id;
+    }
+
+    block.content += chunk;
+    return snapshot();
   }
 
   function absorb(chunk) {
@@ -80,14 +102,53 @@ export function createReasoningParser(settings, initial = {}) {
     };
   }
 
-  return { absorb, finalize, snapshot };
+  return { absorb, absorbReasoning, finalize, snapshot };
 }
 
 export function formatMessageContent(text) {
-  const escaped = escapeHtml(text || '');
-  return escaped
-    .replace(/&quot;([^&]+?)&quot;/g, '<span class="dialogue-text">&quot;$1&quot;</span>')
-    .replace(/\*([^*]+?)\*/g, '<span class="action-text">$1</span>');
+  return decorateInline(String(text || ''));
+}
+
+function decorateInline(text) {
+  let html = '';
+  let buffer = '';
+  let mode = null;
+
+  const flush = () => {
+    if (!buffer) return;
+    const escaped = escapeHtml(buffer);
+    if (mode === 'dialogue') html += `<span class="dialogue-text">${escaped}</span>`;
+    else if (mode === 'action') html += `<span class="action-text">${escaped}</span>`;
+    else html += escaped;
+    buffer = '';
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (char === '"' && mode !== 'action') {
+      flush();
+      if (mode === 'dialogue') {
+        html += '<span class="dialogue-text">&quot;</span>';
+        mode = null;
+      } else {
+        mode = 'dialogue';
+        html += '<span class="dialogue-text">&quot;</span>';
+      }
+      continue;
+    }
+
+    if (char === '*' && mode !== 'dialogue') {
+      flush();
+      mode = mode === 'action' ? null : 'action';
+      continue;
+    }
+
+    buffer += char;
+  }
+
+  flush();
+  return html;
 }
 
 export function escapeHtml(value) {

@@ -67,7 +67,9 @@ export async function streamChat(settings, messages, callbacks) {
       const json = JSON.parse(data);
       const choice = json.choices?.[0];
       const delta = choice?.delta || {};
-      const content = delta.content || delta.reasoning_content || delta.reasoning || '';
+      const reasoning = delta.reasoning_content ?? delta.reasoning ?? '';
+      const content = delta.content ?? '';
+      if (reasoning) callbacks.onReasoningToken?.(reasoning);
       if (content) callbacks.onToken?.(content);
       if (choice?.finish_reason) callbacks.onDone?.();
     } catch {

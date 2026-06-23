@@ -34,7 +34,7 @@ function renderConnections(panelTitle, panelSubtitle, panelActions, panelBody) {
     <div class="panel-section">
       <div class="section-title">|- Local proxy</div>
       <div class="config-readout"><span>Proxy URL</span><strong>${escapeHtml(state.settings.proxyUrl)}</strong></div>
-      <div class="panel-note">The proxy URL is loaded from <code>backend/config.yaml</code>. The browser no longer edits this value.</div>
+      <div class="panel-note">The proxy URL is loaded from root <code>config.yaml</code>. The browser no longer edits this value.</div>
     </div>
     <div class="panel-section">
       <div class="section-title">|- OAI compatible</div>

@@ -296,6 +296,14 @@ export async function generateAssistant() {
   render();
 
   const parser = createReasoningParser(state.settings);
+  const preserveReasoningCollapse = incomingBlocks => {
+    const existing = new Map((assistant.reasoningBlocks || []).map(block => [block.id, block.collapsed]));
+    return incomingBlocks.map(block => existing.has(block.id) ? { ...block, collapsed: existing.get(block.id) } : block);
+  };
+  const applyStreamingSnapshot = snapshot => {
+    assistant.content = snapshot.visible;
+    assistant.reasoningBlocks = preserveReasoningCollapse(snapshot.reasoningBlocks);
+  };
   let done = false;
   let interrupted = false;
   let renderTimer = null;
@@ -311,8 +319,7 @@ export async function generateAssistant() {
     if (done) return;
     done = true;
     const snapshot = parser.finalize();
-    assistant.content = snapshot.visible;
-    assistant.reasoningBlocks = snapshot.reasoningBlocks;
+    applyStreamingSnapshot(snapshot);
     assistant.streaming = false;
     state.generating = false;
     state.generationController = null;
@@ -326,10 +333,12 @@ export async function generateAssistant() {
       onController: controller => {
         state.generationController = controller;
       },
+      onReasoningToken: token => {
+        applyStreamingSnapshot(parser.absorbReasoning(token));
+        scheduleRender();
+      },
       onToken: token => {
-        const snapshot = parser.absorb(token);
-        assistant.content = snapshot.visible;
-        assistant.reasoningBlocks = snapshot.reasoningBlocks;
+        applyStreamingSnapshot(parser.absorb(token));
         scheduleRender();
       },
       onAbort: () => {

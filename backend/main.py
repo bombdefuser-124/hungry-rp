@@ -12,20 +12,33 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 
-CONFIG_PATH = Path(__file__).with_name("config.yaml")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+
+
+def default_config() -> dict[str, Any]:
+    return {
+        "proxy_url": "http://localhost:8025",
+        "provider": {
+            "base_url": "http://localhost:5000/v1",
+        },
+    }
+
+
+def ensure_config_file() -> None:
+    if CONFIG_PATH.exists():
+        return
+    CONFIG_PATH.write_text(yaml.safe_dump(default_config(), sort_keys=False), encoding="utf-8")
 
 
 def load_config() -> dict[str, Any]:
-    default = {
-        "proxy_url": "http://localhost:8025",
-        "provider": {"base_url": "http://localhost:5000/v1", "api_key": "", "model": ""},
-    }
-    if not CONFIG_PATH.exists():
-        return default
+    default = default_config()
+    ensure_config_file()
     with CONFIG_PATH.open("r", encoding="utf-8") as file:
         loaded = yaml.safe_load(file) or {}
     provider = {**default["provider"], **(loaded.get("provider") or {})}
-    return {**default, **loaded, "provider": provider}
+    config = {**default, **loaded, "provider": provider}
+    return config
 
 
 app = FastAPI(title="hungry-rp proxy")
