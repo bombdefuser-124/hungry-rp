@@ -24,6 +24,26 @@ export async function fetchModels(settings) {
   return models.map(model => model.id || model.name || String(model)).filter(Boolean).sort();
 }
 
+export async function scanSillyTavern(settings, path) {
+  const response = await fetch(proxyUrl(settings, '/api/sillytavern/scan'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function importSillyTavern(settings, payload) {
+  const response = await fetch(proxyUrl(settings, '/api/sillytavern/import'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 export async function streamChat(settings, messages, callbacks) {
   const controller = new AbortController();
   callbacks.onController?.(controller);

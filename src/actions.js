@@ -1,4 +1,4 @@
-import { streamChat } from './api.js';
+import { importSillyTavern, scanSillyTavern, streamChat } from './api.js';
 import { deleteChat, deleteStoreItem, getChats, getStoreItems, saveChat, saveSettings, saveStoreItem } from './db.js';
 import {
   activeBranch,
@@ -13,8 +13,8 @@ import {
   setActiveBranch,
   setActiveLeaf
 } from './chat-model.js';
-import { characterToCard, createCharacterFromForm, createDefaultPreset, createPersonaFromForm, fileToDataUrl, isContextSlotPrompt, parseCharacterFile, parsePresetFilePayload, presetToExport } from './content-parsers.js';
-import { openConfirmDialog, openTextDialog } from './dialog.js';
+import { characterToCard, createCharacterFromForm, createDefaultPreset, createPersonaFromForm, fileToDataUrl, isContextSlotPrompt, normalizeCharacterCard, parseCharacterFile, parsePresetFilePayload, presetToExport } from './content-parsers.js';
+import { openConfirmDialog, openSillyTavernImportDialog, openTextDialog } from './dialog.js';
 import { createReasoningParser } from './reasoning.js';
 import { activeCharacter, activePersona, activePreset, state } from './state.js';
 import { setStatus } from './status.js';
@@ -427,6 +427,72 @@ export async function importChatFile(event) {
 export function exportActiveChat() {
   if (!state.activeChat) return;
   downloadJson(`${state.activeChat.title.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()}.json`, { version: 1, chat: state.activeChat });
+}
+
+export async function importFromSillyTavern() {
+  const path = await openTextDialog({
+    title: 'Import from SillyTavern',
+    label: 'SillyTavern install path (e.g. /path/to/SillyTavern)',
+    value: '',
+    confirmText: 'Scan'
+  });
+  if (path === null) return;
+
+  try {
+    setStatus('Scanning SillyTavern userdata...');
+    const scan = await scanSillyTavern(state.settings, path.trim());
+    const selection = await openSillyTavernImportDialog(scan);
+    if (!selection) return;
+
+    const selectedCount = selection.characters.length + selection.personas.length + selection.presets.length;
+    if (!selectedCount) {
+      setStatus('Nothing selected for import.');
+      return;
+    }
+
+    setStatus('Importing selected SillyTavern userdata...');
+    const imported = await importSillyTavern(state.settings, { path: path.trim(), ...selection });
+
+    let characterCount = 0;
+    for (const item of imported.characters || []) {
+      const character = normalizeCharacterCard(item.card, item.sourceName, item.image);
+      await saveStoreItem('characters', character);
+      characterCount += 1;
+      if (!state.settings.activeCharacterId) state.settings = await saveSettings({ ...state.settings, activeCharacterId: character.id });
+    }
+
+    let personaCount = 0;
+    for (const item of imported.personas || []) {
+      const persona = {
+        id: newId('persona'),
+        name: item.name || 'Imported persona',
+        description: item.description || '',
+        image: item.image || null,
+        sourceName: item.sourceName || 'SillyTavern',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await saveStoreItem('personas', persona);
+      personaCount += 1;
+      if (!state.settings.activePersonaId) state.settings = await saveSettings({ ...state.settings, activePersonaId: persona.id });
+    }
+
+    let presetCount = 0;
+    for (const item of imported.presets || []) {
+      const preset = parsePresetFilePayload(item.preset, item.sourceName);
+      await saveStoreItem('presets', preset);
+      presetCount += 1;
+      if (!state.settings.activePresetId) state.settings = await saveSettings({ ...state.settings, activePresetId: preset.id });
+    }
+
+    state.characters = await getStoreItems('characters');
+    state.personas = await getStoreItems('personas');
+    state.presets = await getStoreItems('presets');
+    setStatus(`Imported ${characterCount} character(s), ${personaCount} persona(s), ${presetCount} preset(s).`);
+    render();
+  } catch (error) {
+    setStatus(`SillyTavern import failed: ${error.message || String(error)}`);
+  }
 }
 
 export async function importCharacterFromPicker() {

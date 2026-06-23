@@ -18,6 +18,7 @@ import {
   exportPreset,
   importCharacterFromPicker,
   importChatFile,
+  importFromSillyTavern,
   importPresetFromPicker,
   nodeById,
   renameActiveChat,
@@ -189,6 +190,8 @@ async function handlePanelAction({ action, id, role, content } = {}) {
   if (action === 'update-prompt-role') await updatePresetPromptRole(id, role);
   if (action === 'update-prompt-content') await updatePresetPromptContent(id, content || '');
   if (action === 'export-preset') exportPreset(id || activePreset()?.id);
+
+  if (action === 'import-sillytavern') await importFromSillyTavern();
 
   if (action === 'create-persona') await createPersonaFromPanel();
   if (action === 'select-persona') await selectPersona(id);

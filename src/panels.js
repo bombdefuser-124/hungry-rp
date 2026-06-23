@@ -209,6 +209,11 @@ function renderSettings(panelTitle, panelSubtitle, panelActions, panelBody) {
   panelActions.innerHTML = '';
   panelBody.innerHTML = `
     <div class="panel-section">
+      <div class="section-title">|- Import</div>
+      <button class="small-action full-action" data-panel-action="import-sillytavern">Import from SillyTavern</button>
+      <div class="panel-note">Scans only SillyTavern userdata under the install path you provide, then lets you choose exact characters, personas, and presets before importing.</div>
+    </div>
+    <div class="panel-section">
       <div class="section-title">|- Interface</div>
       ${toggleLine('settingShowImages', 'Show character images', state.settings.showImages)}
       ${toggleLine('settingCompactCards', 'Compact message cards', state.settings.compactCards)}

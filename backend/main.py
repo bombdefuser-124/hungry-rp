@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import json
+import struct
 from pathlib import Path
 from typing import Any, AsyncIterator
 from urllib.parse import urljoin
@@ -69,6 +72,17 @@ class ChatStreamRequest(ProviderConfig):
     max_tokens: int | None = None
 
 
+class SillyTavernScanRequest(BaseModel):
+    path: str = Field(..., min_length=1)
+
+
+class SillyTavernImportRequest(SillyTavernScanRequest):
+    user: str = "default-user"
+    characters: list[str] = []
+    personas: list[str] = []
+    presets: list[str] = []
+
+
 def normalize_base_url(base_url: str) -> str:
     base = base_url.strip().rstrip("/")
     if not base:
@@ -104,6 +118,160 @@ async def config() -> dict[str, Any]:
             "model": provider.get("model") or "",
         },
     }
+
+
+def sillytavern_root(raw_path: str) -> Path:
+    root = Path(raw_path).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(status_code=400, detail="SillyTavern path does not exist or is not a directory")
+    data = root / "data"
+    if not data.exists() or not data.is_dir():
+        raise HTTPException(status_code=400, detail="Could not find SillyTavern data directory")
+    return root
+
+
+def sillytavern_users(root: Path) -> list[Path]:
+    data = root / "data"
+    return sorted([item for item in data.iterdir() if item.is_dir() and not item.name.startswith("_")], key=lambda item: item.name.lower())
+
+
+def user_data_dir(root: Path, user: str) -> Path:
+    users = {item.name: item for item in sillytavern_users(root)}
+    selected = users.get(user) or users.get("default-user") or next(iter(users.values()), None)
+    if not selected:
+        raise HTTPException(status_code=400, detail="No SillyTavern userdata directories found")
+    return selected
+
+
+def list_files(base: Path, directory: Path, extensions: set[str], recursive: bool = True) -> list[dict[str, str]]:
+    if not directory.exists():
+        return []
+    items = []
+    iterator = directory.rglob("*") if recursive else directory.iterdir()
+    for item in sorted(iterator):
+        if not item.is_file() or item.suffix.lower() not in extensions:
+            continue
+        rel = item.relative_to(base).as_posix()
+        items.append({"id": rel, "label": item.stem, "path": rel})
+    return items
+
+
+def safe_user_file(user_dir: Path, rel_path: str) -> Path:
+    path = (user_dir / rel_path).resolve()
+    if not path.is_file() or not path.is_relative_to(user_dir.resolve()):
+        raise HTTPException(status_code=400, detail=f"Invalid userdata file selection: {rel_path}")
+    return path
+
+
+def read_json_file(path: Path) -> Any | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def data_url(path: Path) -> str:
+    suffix = path.suffix.lower().lstrip(".") or "png"
+    mime = "jpeg" if suffix in {"jpg", "jpeg"} else suffix
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:image/{mime};base64,{encoded}"
+
+
+def png_text_chunks(path: Path) -> dict[str, str]:
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return {}
+    chunks: dict[str, str] = {}
+    offset = 8
+    while offset + 12 <= len(data):
+        length = struct.unpack(">I", data[offset:offset + 4])[0]
+        chunk_type = data[offset + 4:offset + 8]
+        start = offset + 8
+        end = start + length
+        if end > len(data):
+            break
+        if chunk_type == b"tEXt":
+            chunk = data[start:end]
+            if b"\x00" in chunk:
+                key, value = chunk.split(b"\x00", 1)
+                chunks[key.decode("latin1", errors="replace")] = value.decode("latin1", errors="replace")
+        offset = end + 4
+    return chunks
+
+
+def read_character_file(path: Path) -> dict[str, Any] | None:
+    if path.suffix.lower() == ".json":
+        card = read_json_file(path)
+        if card:
+            return {"sourceName": path.name, "card": card, "image": None}
+    if path.suffix.lower() in {".png", ".apng"}:
+        chunks = png_text_chunks(path)
+        encoded = chunks.get("ccv3") or chunks.get("chara")
+        if not encoded:
+            return None
+        try:
+            card = json.loads(base64.b64decode(encoded).decode("utf-8"))
+            return {"sourceName": path.name, "card": card, "image": data_url(path)}
+        except Exception:
+            return None
+    return None
+
+
+@app.post("/api/sillytavern/scan")
+async def scan_sillytavern(request: SillyTavernScanRequest) -> dict[str, Any]:
+    root = sillytavern_root(request.path)
+    users = sillytavern_users(root)
+    result = []
+    for user_dir in users:
+        persona_items = list_files(user_dir, user_dir / "User Avatars", {".png", ".jpg", ".jpeg", ".webp"}, recursive=False)
+        persona_items.extend(list_files(user_dir, user_dir / "user", {".json"}, recursive=False))
+        result.append({
+            "name": user_dir.name,
+            "characters": list_files(user_dir, user_dir / "characters", {".json", ".png", ".apng"}, recursive=False),
+            "personas": persona_items,
+            "presets": list_files(user_dir, user_dir / "OpenAI Settings", {".json"}),
+        })
+    return {"root": str(root), "users": result}
+
+
+@app.post("/api/sillytavern/import")
+async def import_sillytavern(request: SillyTavernImportRequest) -> dict[str, Any]:
+    root = sillytavern_root(request.path)
+    user_dir = user_data_dir(root, request.user)
+    result: dict[str, Any] = {"user": user_dir.name, "characters": [], "personas": [], "presets": []}
+
+    for rel_path in request.characters:
+        path = safe_user_file(user_dir, rel_path)
+        if path.suffix.lower() not in {".json", ".png", ".apng"}:
+            continue
+        character = read_character_file(path)
+        if character:
+            result["characters"].append(character)
+
+    for rel_path in request.personas:
+        path = safe_user_file(user_dir, rel_path)
+        if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            result["personas"].append({"name": path.stem, "description": "", "image": data_url(path), "sourceName": path.name})
+            continue
+        if path.suffix.lower() == ".json":
+            payload = read_json_file(path)
+            if isinstance(payload, dict):
+                result["personas"].append({
+                    "name": payload.get("name") or payload.get("display_name") or path.stem,
+                    "description": payload.get("description") or payload.get("persona") or payload.get("content") or "",
+                    "image": None,
+                    "sourceName": path.name,
+                })
+
+    for rel_path in request.presets:
+        path = safe_user_file(user_dir, rel_path)
+        if path.suffix.lower() != ".json":
+            continue
+        payload = read_json_file(path)
+        if isinstance(payload, dict) and isinstance(payload.get("prompts"), list):
+            result["presets"].append({"sourceName": path.name, "preset": payload})
+
+    return result
 
 
 @app.post("/api/models")

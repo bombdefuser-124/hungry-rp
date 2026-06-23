@@ -1487,3 +1487,91 @@ button, input, textarea, select { font-family: var(--mono); }
   border-radius: var(--radius);
   background: rgba(10,10,10,0.28);
 }
+
+.wide-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.item-import-list {
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  margin-top: 12px;
+  padding-right: 2px;
+  display: grid;
+  gap: 12px;
+  box-shadow:
+    inset 0 24px 18px -26px rgba(20,20,20,0.96),
+    inset 0 -24px 18px -26px rgba(20,20,20,0.96);
+}
+
+.import-group {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: rgba(10,10,10,0.22);
+  overflow: hidden;
+}
+
+.import-group-title {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--accent-bright);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.import-group-title label,
+.import-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.import-items {
+  display: grid;
+}
+
+.import-option.item-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.import-option.item-option:last-child {
+  border-bottom: 0;
+}
+
+.import-option.item-option:hover {
+  background: rgba(255,255,255,0.035);
+}
+
+.import-option.item-option input {
+  grid-row: span 2;
+  align-self: center;
+}
+
+.import-option.item-option span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-option.item-option small {
+  color: var(--text-muted);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-empty {
+  padding: 10px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
