@@ -16,15 +16,40 @@ import {
 import { characterToCard, createCharacterFromForm, createDefaultPreset, createPersonaFromForm, fileToDataUrl, isContextSlotPrompt, normalizeCharacterCard, parseCharacterFile, parsePresetFilePayload, presetToExport } from './content-parsers.js';
 import { openConfirmDialog, openSillyTavernImportDialog, openTextDialog } from './dialog.js';
 import { createReasoningParser } from './reasoning.js';
-import { activeCharacter, activePersona, activePreset, state } from './state.js';
+import { activeCharacter, activePersona, activePreset, chatsForCharacter, state } from './state.js';
 import { setStatus } from './status.js';
 import { render, renderMessages } from './ui.js';
 
-export async function createNewChat() {
-  state.activeChat = createChat(`Roleplay ${state.chats.length + 1}`, activeCharacter());
+function currentCharacterChats() {
+  const character = activeCharacter();
+  return chatsForCharacter(character?.id || state.settings.activeCharacterId || '');
+}
+
+async function activateFirstChatForCurrentCharacter(createIfMissing = true) {
+  const character = activeCharacter();
+  const scopedChats = currentCharacterChats();
+  if (state.activeChat && scopedChats.some(chat => chat.id === state.activeChat.id)) return state.activeChat;
+  if (scopedChats.length) {
+    state.activeChat = scopedChats[0];
+    state.autoScrollToBottom = true;
+    return state.activeChat;
+  }
+  if (!createIfMissing) {
+    state.activeChat = null;
+    return null;
+  }
+  state.activeChat = createChat(`Roleplay ${scopedChats.length + 1}`, character);
   await persistActiveChat();
   state.autoScrollToBottom = true;
-  setStatus(`Created ${state.activeChat.title}.`);
+  return state.activeChat;
+}
+
+export async function createNewChat() {
+  const character = activeCharacter();
+  state.activeChat = createChat(`Roleplay ${currentCharacterChats().length + 1}`, character);
+  await persistActiveChat();
+  state.autoScrollToBottom = true;
+  setStatus(`Created ${state.activeChat.title} for ${character?.name || 'this character'}.`);
   render();
 }
 
@@ -53,18 +78,13 @@ export async function deleteActiveChat() {
 
   await deleteChat(state.activeChat.id);
   state.chats = await getChats();
-  if (!state.chats.length) {
-    state.activeChat = createChat('Roleplay 1', activeCharacter());
-    await persistActiveChat();
-  } else {
-    state.activeChat = state.chats[0];
-  }
+  await activateFirstChatForCurrentCharacter(true);
   setStatus('Chat deleted.');
   render();
 }
 
 export function switchChat(id) {
-  const chat = state.chats.find(item => item.id === id);
+  const chat = currentCharacterChats().find(item => item.id === id);
   if (!chat) return;
   state.activeChat = chat;
   state.autoScrollToBottom = true;
@@ -410,9 +430,20 @@ export async function importChatFile(event) {
     const payload = JSON.parse(text);
     const chat = payload.chat || payload;
     if (!chat.nodes || !Object.prototype.hasOwnProperty.call(chat, 'activeLeafId')) throw new Error('Invalid chat export');
+    const character = activeCharacter();
     chat.id = chat.id || newId('chat');
     chat.title = chat.title || file.name.replace(/\.json$/i, '');
+    const exportedCharacterExists = chat.characterId && state.characters.some(item => item.id === chat.characterId);
+    if (!exportedCharacterExists) {
+      chat.characterId = character?.id || null;
+      chat.characterName = character?.name || 'Character';
+    } else {
+      chat.characterName = chat.characterName || state.characters.find(item => item.id === chat.characterId)?.name || 'Character';
+    }
     state.activeChat = await saveChat(chat);
+    if (chat.characterId && chat.characterId !== state.settings.activeCharacterId) {
+      state.settings = await saveSettings({ ...state.settings, activeCharacterId: chat.characterId });
+    }
     state.chats = await getChats();
     state.autoScrollToBottom = true;
     setStatus(`Imported chat ${chat.title}.`);
@@ -577,26 +608,8 @@ export async function selectCharacter(id) {
   const character = state.characters.find(item => item.id === id);
   if (!character) return;
   state.settings = await saveSettings({ ...state.settings, activeCharacterId: character.id });
-  if (state.activeChat && !activePath().length) {
-    state.activeChat.characterId = character.id;
-    state.activeChat.characterName = character.name;
-    const firstMessage = character.firstMessage?.trim();
-    if (firstMessage) {
-      const node = {
-        id: newId('msg'),
-        parentId: null,
-        role: 'assistant',
-        name: character.name,
-        content: firstMessage,
-        reasoningBlocks: [],
-        createdAt: new Date().toISOString()
-      };
-      state.activeChat.nodes[node.id] = node;
-      setActiveLeaf(state.activeChat, node.id);
-    }
-    await persistActiveChat();
-  }
-  setStatus(`Selected character ${character.name}. New chats will use this card.`);
+  await activateFirstChatForCurrentCharacter(true);
+  setStatus(`Selected character ${character.name}. Showing only this character's chats.`);
   render();
 }
 
@@ -609,6 +622,7 @@ export async function deleteCharacter(id) {
   state.characters = await getStoreItems('characters');
   const nextActive = state.settings.activeCharacterId === id ? (state.characters[0]?.id || '') : state.settings.activeCharacterId;
   state.settings = await saveSettings({ ...state.settings, activeCharacterId: nextActive });
+  await activateFirstChatForCurrentCharacter(true);
   setStatus('Character deleted.');
   render();
 }

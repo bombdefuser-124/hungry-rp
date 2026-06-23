@@ -3,6 +3,7 @@ import { saveSettings } from './db.js';
 import { applySettings } from './dom-settings.js';
 import { isContextSlotPrompt, isDefaultPresetPrompt } from './content-parsers.js';
 import { icons } from './icons.js';
+import { wireImageOrientation } from './image-orientation.js';
 import { escapeHtml } from './reasoning.js';
 import { activeCharacter, activePersona, activePreset, state } from './state.js';
 import { setStatus } from './status.js';
@@ -25,6 +26,7 @@ export function renderPanel() {
   };
 
   views[state.activeView]?.(panelTitle, panelSubtitle, panelActions, panelBody);
+  wireImageOrientation(panelBody);
 }
 
 function renderConnections(panelTitle, panelSubtitle, panelActions, panelBody) {
@@ -168,7 +170,7 @@ function renderCharacterItem(character) {
   const active = character.id === state.settings.activeCharacterId;
   return `
     <div class="list-item rich ${active ? 'active' : ''}" data-panel-action="select-character" data-id="${character.id}">
-      <div class="image-thumb">${character.image ? `<img src="${character.image}" alt="" />` : ''}</div>
+      <div class="image-thumb image-frame">${character.image ? `<img data-detect-orientation src="${character.image}" alt="" />` : ''}</div>
       <div class="item-main"><div class="item-name">${escapeHtml(character.name)}</div><div class="item-desc">${escapeHtml(character.scenario || character.description || character.sourceName || 'character card')}</div></div>
       <div class="item-actions">
         <button class="branch-icon-button" data-panel-action="edit-character" data-id="${character.id}" title="Edit">${icons.edit}</button>
@@ -197,7 +199,7 @@ function renderPersonaItem(persona) {
   const active = persona.id === state.settings.activePersonaId;
   return `
     <div class="list-item rich ${active ? 'active' : ''}" data-panel-action="select-persona" data-id="${persona.id}">
-      <div class="image-thumb">${persona.image ? `<img src="${persona.image}" alt="" />` : ''}</div>
+      <div class="image-thumb image-frame">${persona.image ? `<img data-detect-orientation src="${persona.image}" alt="" />` : ''}</div>
       <div class="item-main"><div class="item-name">${escapeHtml(persona.name)}</div><div class="item-desc">${escapeHtml(persona.description || 'persona')}</div></div>
       <div class="item-actions"><button class="branch-icon-button danger" data-panel-action="delete-persona" data-id="${persona.id}" title="Delete">${icons.delete}</button></div>
     </div>`;
@@ -237,7 +239,7 @@ function renderSettings(panelTitle, panelSubtitle, panelActions, panelBody) {
 
 function characterForm(character = null) {
   const editing = Boolean(character);
-  const imagePreview = character?.image ? `<div class="current-image-preview"><img src="${character.image}" alt="" /><span>Current image is used for chat icons. Upload a file below to replace it.</span></div>` : '<div class="panel-note">No image is attached yet. Upload one to use it as this character\'s chat icon.</div>';
+  const imagePreview = character?.image ? `<div class="current-image-preview image-frame"><img data-detect-orientation src="${character.image}" alt="" /><span>Current image is used for chat icons. Upload a file below to replace it.</span></div>` : '<div class="panel-note">No image is attached yet. Upload one to use it as this character\'s chat icon.</div>';
   return `
     <div class="panel-section creation-card">
       <div class="section-title">|- ${editing ? 'Edit character' : 'Create character'}</div>

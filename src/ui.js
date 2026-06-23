@@ -1,9 +1,10 @@
 import { activePath, branchBookmarks, branchLabel } from './chat-model.js';
 import { applySettings } from './dom-settings.js';
 import { icons } from './icons.js';
+import { wireImageOrientation } from './image-orientation.js';
 import { renderPanel } from './panels.js';
 import { escapeHtml, formatMessageContent } from './reasoning.js';
-import { activePersona, state } from './state.js';
+import { activePersona, chatsForCharacter, state } from './state.js';
 import { syncStatus } from './status.js';
 
 export function renderShell() {
@@ -81,7 +82,9 @@ export function renderHeader() {
     : 'no active chat';
 
   const select = document.getElementById('chatSelect');
-  select.innerHTML = state.chats.map(chat => `<option value="${chat.id}" ${chat.id === state.activeChat?.id ? 'selected' : ''}>${escapeHtml(chat.title)}</option>`).join('');
+  const scopedChats = chatsForCharacter();
+  select.innerHTML = scopedChats.map(chat => `<option value="${chat.id}" ${chat.id === state.activeChat?.id ? 'selected' : ''}>${escapeHtml(chat.title)}</option>`).join('');
+  select.disabled = scopedChats.length <= 1;
 
   if (!state.activeChat) return;
   document.getElementById('branchTreeMenu').innerHTML = `
@@ -126,6 +129,7 @@ export function renderMessages() {
   }
 
   messages.innerHTML = path.map(node => renderMessage(node)).join('');
+  wireImageOrientation(messages);
   if (shouldStick) scrollMessagesToBottom(false);
   else messages.scrollTop = previousScrollTop;
   updateScrollDownButton();
@@ -157,7 +161,7 @@ function renderMessage(node) {
   const cssRole = node.role === 'assistant' ? 'ai' : node.role;
   const roleLabel = node.role === 'assistant' ? (state.activeChat.characterName || 'assistant') : node.role === 'user' ? (activePersona()?.name || 'you') : 'system';
   const portrait = portraitFor(node.role);
-  const image = node.role === 'system' ? '<div class="msg-image hidden"></div>' : `<div class="msg-image"><img alt="${escapeHtml(roleLabel)} portrait" src="${portrait}" /></div>`;
+  const image = node.role === 'system' ? '<div class="msg-image hidden"></div>' : `<div class="msg-image image-frame"><img data-detect-orientation alt="${escapeHtml(roleLabel)} portrait" src="${portrait}" /></div>`;
   const reasoning = (node.reasoningBlocks || []).map(block => `
     <div class="reasoning-block ${block.collapsed ? 'collapsed' : ''}" data-reasoning-id="${block.id}">
       <button class="reasoning-toggle" data-action="toggle-reasoning" data-message-id="${node.id}" data-reasoning-id="${block.id}"><span>reasoning</span><span>${block.collapsed ? 'show' : 'hide'}</span></button>

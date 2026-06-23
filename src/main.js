@@ -1,9 +1,9 @@
 import { fetchBackendConfig, DEFAULT_PROXY_URL } from './api.js';
-import { getChats, getSettings, getStoreItems, saveSettings } from './db.js';
+import { getChats, getSettings, getStoreItems, saveChat, saveSettings } from './db.js';
 import { bindShellEvents } from './events.js';
 import { createChat, persistActiveChat } from './chat-model.js';
 import { escapeHtml } from './reasoning.js';
-import { activeCharacter, state } from './state.js';
+import { activeCharacter, chatsForCharacter, state } from './state.js';
 import { render, renderShell } from './ui.js';
 
 async function init() {
@@ -37,11 +37,26 @@ async function init() {
     state.settings = await saveSettings({ ...state.settings, activePresetId: state.presets[0].id });
   }
 
-  if (!state.chats.length) {
-    state.activeChat = createChat('session-001', activeCharacter());
+  const character = activeCharacter();
+  if (character) {
+    let migratedLegacyChats = false;
+    for (const chat of state.chats) {
+      if (!chat.characterId) {
+        chat.characterId = character.id;
+        chat.characterName = chat.characterName || character.name;
+        await saveChat(chat);
+        migratedLegacyChats = true;
+      }
+    }
+    if (migratedLegacyChats) state.chats = await getChats();
+  }
+
+  const scopedChats = chatsForCharacter(character?.id || state.settings.activeCharacterId || '');
+  if (!scopedChats.length) {
+    state.activeChat = createChat('session-001', character);
     await persistActiveChat();
   } else {
-    state.activeChat = state.chats[0];
+    state.activeChat = scopedChats[0];
   }
 
   renderShell();
