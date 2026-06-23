@@ -1,0 +1,9 @@
+== node ==
+node_modules
+
+== python ==
+.venv
+backend/__pycache__
+
+== misc ==
+.ds
