@@ -1,5 +1,14 @@
+export const DEFAULT_PROXY_URL = 'http://localhost:8025';
+
 function proxyUrl(settings, path) {
-  return `${settings.proxyUrl.replace(/\/$/, '')}${path}`;
+  const base = (settings.proxyUrl || DEFAULT_PROXY_URL).replace(/\/$/, '');
+  return `${base}${path}`;
+}
+
+export async function fetchBackendConfig(proxyBase = DEFAULT_PROXY_URL) {
+  const response = await fetch(`${proxyBase.replace(/\/$/, '')}/api/config`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 export async function fetchModels(settings) {

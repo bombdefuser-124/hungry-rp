@@ -1,13 +1,31 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, AsyncIterator
 from urllib.parse import urljoin
 
 import httpx
+import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+
+CONFIG_PATH = Path(__file__).with_name("config.yaml")
+
+
+def load_config() -> dict[str, Any]:
+    default = {
+        "proxy_url": "http://localhost:8025",
+        "provider": {"base_url": "http://localhost:5000/v1", "api_key": "", "model": ""},
+    }
+    if not CONFIG_PATH.exists():
+        return default
+    with CONFIG_PATH.open("r", encoding="utf-8") as file:
+        loaded = yaml.safe_load(file) or {}
+    provider = {**default["provider"], **(loaded.get("provider") or {})}
+    return {**default, **loaded, "provider": provider}
 
 
 app = FastAPI(title="hungry-rp proxy")
@@ -59,6 +77,20 @@ def headers(api_key: str) -> dict[str, str]:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+async def config() -> dict[str, Any]:
+    loaded = load_config()
+    provider = loaded.get("provider") or {}
+    return {
+        "proxyUrl": loaded.get("proxy_url") or "http://localhost:8025",
+        "provider": {
+            "baseUrl": provider.get("base_url") or "http://localhost:5000/v1",
+            "apiKey": provider.get("api_key") or "",
+            "model": provider.get("model") or "",
+        },
+    }
 
 
 @app.post("/api/models")

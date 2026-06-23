@@ -1,0 +1,5 @@
+proxy_url: http://localhost:8025
+provider:
+  base_url: http://localhost:5000/v1
+  api_key: ""
+  model: ""

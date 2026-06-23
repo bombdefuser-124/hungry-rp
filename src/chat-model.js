@@ -9,18 +9,34 @@ export function newId(prefix) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-export function createChat(title = 'New roleplay') {
+export function createChat(title = 'New roleplay', character = null) {
   const branchId = newId('branch');
+  const now = new Date().toISOString();
+  const firstMessage = character?.firstMessage?.trim();
+  const firstId = firstMessage ? newId('msg') : null;
+  const nodes = firstId ? {
+    [firstId]: {
+      id: firstId,
+      parentId: null,
+      role: 'assistant',
+      name: character.name,
+      content: firstMessage,
+      reasoningBlocks: [],
+      createdAt: now
+    }
+  } : {};
+
   return {
     id: newId('chat'),
     title,
-    characterName: 'Kael the Wanderer',
-    activeLeafId: null,
+    characterId: character?.id || null,
+    characterName: character?.name || 'Kael the Wanderer',
+    activeLeafId: firstId,
     activeBranchId: branchId,
-    branchBookmarks: [{ id: branchId, name: 'main thread', leafId: null, createdAt: new Date().toISOString() }],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    nodes: {}
+    branchBookmarks: [{ id: branchId, name: 'main thread', leafId: firstId, createdAt: now }],
+    createdAt: now,
+    updatedAt: now,
+    nodes
   };
 }
 

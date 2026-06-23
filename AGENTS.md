@@ -17,5 +17,6 @@ hungry-rp is a lightweight roleplay-focused chat UI built to stay simple, fast, 
 - No direct browser-to-provider calls.
 - Minimal UI complexity.
 - Clear chat structure and branch behavior.
+- Never show visible scrollbars; use subtle upper/lower edge fade indicators for scrollable areas instead.
 - System messages are reserved for true system-role content only.
 - The project is still work in progress.

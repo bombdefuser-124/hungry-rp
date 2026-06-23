@@ -1,23 +1,43 @@
 import {
+  addPromptToPreset,
   branchFrom,
+  createCharacterFromPanel,
+  createEmptyPreset,
   createNewChat,
+  createPersonaFromPanel,
   deleteActiveChat,
   deleteBranch,
+  deleteCharacter,
   deleteMessage,
+  deletePersona,
+  deletePreset,
   editMessage,
+  editPresetPrompt,
   exportActiveChat,
+  exportCharacter,
+  exportPreset,
+  importCharacterFromPicker,
   importChatFile,
+  importPresetFromPicker,
   nodeById,
   renameActiveChat,
   renameBranch,
   retryFrom,
+  selectCharacter,
+  selectPersona,
+  selectPreset,
   sendUserMessage,
   switchBranch,
   switchChat,
-  toggleReasoning
+  togglePresetPrompt,
+  togglePresetPromptExpanded,
+  toggleReasoning,
+  updateCharacterFromPanel,
+  updatePresetPromptContent,
+  updatePresetPromptRole
 } from './actions.js';
 import { renderPanel } from './panels.js';
-import { state } from './state.js';
+import { activeCharacter, activePreset, state } from './state.js';
 import { isAtMessageBottom, scrollMessagesToBottom, updateScrollDownButton } from './ui.js';
 
 export function bindShellEvents() {
@@ -27,6 +47,7 @@ export function bindShellEvents() {
   bindReplyInput();
   bindMessageScroll();
   document.addEventListener('click', handleDocumentClick);
+  document.addEventListener('panel-action', event => handlePanelAction(event.detail));
 }
 
 function bindSidePanel() {
@@ -49,6 +70,7 @@ function bindRailButtons() {
   document.querySelectorAll('.rail-button[data-view]').forEach(button => {
     button.addEventListener('click', () => {
       state.activeView = button.dataset.view;
+      state.panelMode = null;
       renderPanel();
       button.blur();
     });
@@ -93,6 +115,14 @@ function bindReplyInput() {
 }
 
 async function handleDocumentClick(event) {
+  const panelButton = event.target.closest('[data-panel-action]');
+  if (panelButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    await handlePanelAction({ action: panelButton.dataset.panelAction, id: panelButton.dataset.id });
+    return;
+  }
+
   const actionButton = event.target.closest('[data-action]');
   if (actionButton) {
     const action = actionButton.dataset.action;
@@ -120,4 +150,47 @@ async function handleDocumentClick(event) {
 
   const branchRow = event.target.closest('.branch-row[data-branch-id]');
   if (branchRow) await switchBranch(branchRow.dataset.branchId);
+}
+
+async function handlePanelAction({ action, id, role, content } = {}) {
+  if (!action) return;
+
+  if (action === 'show-character-create') {
+    state.panelMode = 'create-character';
+    renderPanel();
+  }
+  if (action === 'edit-character') {
+    state.panelMode = `edit-character:${id}`;
+    renderPanel();
+  }
+  if (action === 'show-persona-create') {
+    state.panelMode = 'create-persona';
+    renderPanel();
+  }
+  if (action === 'cancel-panel-mode') {
+    state.panelMode = null;
+    renderPanel();
+  }
+  if (action === 'import-character') await importCharacterFromPicker();
+  if (action === 'create-character') await createCharacterFromPanel();
+  if (action === 'update-character') await updateCharacterFromPanel(id);
+  if (action === 'select-character') await selectCharacter(id);
+  if (action === 'delete-character') await deleteCharacter(id);
+  if (action === 'export-character') exportCharacter(id || activeCharacter()?.id);
+
+  if (action === 'create-empty-preset') await createEmptyPreset();
+  if (action === 'import-preset') await importPresetFromPicker();
+  if (action === 'select-preset') await selectPreset(id);
+  if (action === 'delete-preset') await deletePreset(id || activePreset()?.id);
+  if (action === 'add-preset-prompt') await addPromptToPreset();
+  if (action === 'toggle-prompt') await togglePresetPrompt(id);
+  if (action === 'toggle-prompt-expanded') await togglePresetPromptExpanded(id);
+  if (action === 'edit-prompt') await editPresetPrompt(id);
+  if (action === 'update-prompt-role') await updatePresetPromptRole(id, role);
+  if (action === 'update-prompt-content') await updatePresetPromptContent(id, content || '');
+  if (action === 'export-preset') exportPreset(id || activePreset()?.id);
+
+  if (action === 'create-persona') await createPersonaFromPanel();
+  if (action === 'select-persona') await selectPersona(id);
+  if (action === 'delete-persona') await deletePersona(id);
 }

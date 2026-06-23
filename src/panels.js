@@ -3,7 +3,7 @@ import { saveSettings } from './db.js';
 import { applySettings } from './dom-settings.js';
 import { icons } from './icons.js';
 import { escapeHtml } from './reasoning.js';
-import { state } from './state.js';
+import { activeCharacter, activePersona, activePreset, state } from './state.js';
 import { setStatus } from './status.js';
 
 export function renderPanel() {
@@ -33,8 +33,8 @@ function renderConnections(panelTitle, panelSubtitle, panelActions, panelBody) {
   panelBody.innerHTML = `
     <div class="panel-section">
       <div class="section-title">|- Local proxy</div>
-      ${panelField('Proxy URL', 'settingProxyUrl', state.settings.proxyUrl)}
-      <div class="panel-note">Frontend requests only talk to this Python backend proxy. Provider calls are never made directly from the browser.</div>
+      <div class="config-readout"><span>Proxy URL</span><strong>${escapeHtml(state.settings.proxyUrl)}</strong></div>
+      <div class="panel-note">The proxy URL is loaded from <code>backend/config.yaml</code>. The browser no longer edits this value.</div>
     </div>
     <div class="panel-section">
       <div class="section-title">|- OAI compatible</div>
@@ -53,27 +53,125 @@ function renderConnections(panelTitle, panelSubtitle, panelActions, panelBody) {
 }
 
 function renderPresets(panelTitle, panelSubtitle, panelActions, panelBody) {
+  const preset = activePreset();
   panelTitle.textContent = 'Presets';
-  panelSubtitle.textContent = 'parsed prompt blocks';
-  panelActions.innerHTML = `<button class="panel-action-button" title="Import preset">${icons.import}</button><button class="panel-action-button" title="Export preset">${icons.export}</button>`;
+  panelSubtitle.textContent = preset ? `${preset.prompts?.length || 0} parsed prompt blocks` : 'import Atelier-style JSON';
+  panelActions.innerHTML = `<button class="panel-action-button" data-panel-action="create-empty-preset" title="Create empty preset">${icons.add}</button><button class="panel-action-button" data-panel-action="import-preset" title="Import preset">${icons.import}</button><button class="panel-action-button" data-panel-action="export-preset" title="Export preset">${icons.export}</button>${preset ? `<button class="panel-action-button danger" data-panel-action="delete-preset" data-id="${preset.id}" title="Delete preset">${icons.delete}</button>` : ''}`;
+
+  if (!state.presets.length) {
+    panelBody.innerHTML = `
+      <div class="empty-panel">
+        <strong>No presets yet</strong>
+        <span>Import a SillyTavern or Atelier-style JSON preset to parse prompt blocks, or create an empty one.</span>
+        <div class="inline-button-row"><button class="small-action" data-panel-action="create-empty-preset">Create empty preset</button><button class="small-action" data-panel-action="import-preset">Import preset JSON</button></div>
+      </div>`;
+    return;
+  }
+
   panelBody.innerHTML = `
-    <div class="panel-section"><div class="section-title">|- Active preset</div><div class="panel-note">Preset storage is ready in IndexedDB. Phase 2 keeps the UX shape from the showcase; full preset parsing can expand from this structure.</div></div>
-    ${['The Premise', 'Variable Init', 'Writing Style Library', 'Character Anchor', 'Dynamic Progression'].map((name, index) => `
-      <div class="prompt-block"><div class="prompt-block-head"><input class="toggle" type="checkbox" checked /><div class="prompt-block-main"><div class="prompt-block-name">${String(index + 1).padStart(2, '0')} // ${name}</div><div class="prompt-block-meta">system // parsed prompt block</div></div><div class="prompt-block-actions"><button class="edit-block-button">edit</button></div></div><div class="prompt-block-body"><div class="prompt-preview">Prompt block placeholder for ${name.toLowerCase()}.</div></div></div>`).join('')}`;
+    <div class="panel-section">
+      <div class="section-title">|- Active preset</div>
+      <select id="activePresetSelect" class="full-select">
+        ${state.presets.map(item => `<option value="${item.id}" ${item.id === preset?.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}
+      </select>
+      <button class="small-action full-action" data-panel-action="add-preset-prompt">Add prompt block</button>
+    </div>
+    ${(preset?.prompts || []).map((prompt, index) => renderPromptBlock(prompt, index)).join('') || '<div class="empty-panel"><strong>Empty preset</strong><span>Add prompt blocks, choose their roles, and write their text. Changes save automatically.</span></div>'}`;
+
+  document.getElementById('activePresetSelect')?.addEventListener('change', event => document.dispatchEvent(new CustomEvent('panel-action', { detail: { action: 'select-preset', id: event.target.value } })));
+  document.querySelectorAll('.prompt-role-select').forEach(select => {
+    select.addEventListener('change', event => document.dispatchEvent(new CustomEvent('panel-action', { detail: { action: 'update-prompt-role', id: select.dataset.id, role: event.target.value } })));
+  });
+  document.querySelectorAll('.prompt-content-input').forEach(input => {
+    let timer = null;
+    input.addEventListener('input', () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => document.dispatchEvent(new CustomEvent('panel-action', { detail: { action: 'update-prompt-content', id: input.dataset.id, content: input.value } })), 250);
+    });
+  });
+}
+
+function renderPromptBlock(prompt, index) {
+  const meta = prompt.meta || {};
+  const details = [meta.category, meta.badge].filter(Boolean).join(' // ');
+  const expanded = Boolean(prompt.expanded);
+  return `
+    <div class="prompt-block ${prompt.enabled === false ? 'disabled' : ''} ${expanded ? 'expanded' : 'collapsed'}">
+      <div class="prompt-block-head">
+        <input class="toggle" type="checkbox" ${prompt.enabled !== false ? 'checked' : ''} data-panel-action="toggle-prompt" data-id="${prompt.id}" title="Enable prompt" />
+        <div class="prompt-block-main">
+          <div class="prompt-block-name">${String(index + 1).padStart(2, '0')} // ${escapeHtml(prompt.name)}</div>
+          <div class="prompt-block-meta">${escapeHtml(details || 'prompt block')}</div>
+        </div>
+        <div class="prompt-block-actions">
+          <select class="prompt-role-select" data-id="${prompt.id}" title="Prompt role">
+            ${['system', 'user', 'assistant'].map(role => `<option value="${role}" ${role === (prompt.role || 'system') ? 'selected' : ''}>${role}</option>`).join('')}
+          </select>
+          <button class="edit-block-button" data-panel-action="toggle-prompt-expanded" data-id="${prompt.id}" title="${expanded ? 'Hide prompt text' : 'Show prompt text'}">${expanded ? 'hide' : 'show'}</button>
+        </div>
+      </div>
+      ${expanded ? `<div class="prompt-block-body"><textarea class="prompt-content-input" data-id="${prompt.id}" placeholder="Write this prompt block...">${escapeHtml(prompt.content || '')}</textarea></div>` : ''}
+    </div>`;
 }
 
 function renderCharacters(panelTitle, panelSubtitle, panelActions, panelBody) {
   panelTitle.textContent = 'Characters';
-  panelSubtitle.textContent = 'character cards and images';
-  panelActions.innerHTML = `<button class="panel-action-button" title="Import character">${icons.import}</button><button class="panel-action-button" title="Create character">${icons.add}</button>`;
-  panelBody.innerHTML = '<div class="list-item active"><div class="image-thumb"></div><div><div class="item-name">Kael the Wanderer</div><div class="item-desc">default starter character</div></div></div>';
+  panelSubtitle.textContent = 'CCv3 JSON and PNG cards';
+  panelActions.innerHTML = `<button class="panel-action-button" data-panel-action="import-character" title="Import character">${icons.import}</button><button class="panel-action-button" data-panel-action="show-character-create" title="Create character">${icons.add}</button>${activeCharacter() ? `<button class="panel-action-button" data-panel-action="export-character" title="Export character">${icons.export}</button>` : ''}`;
+
+  if (state.panelMode === 'create-character') {
+    panelBody.innerHTML = characterForm();
+    return;
+  }
+
+  if (state.panelMode?.startsWith('edit-character:')) {
+    const character = state.characters.find(item => item.id === state.panelMode.slice('edit-character:'.length));
+    panelBody.innerHTML = character ? characterForm(character) : '<div class="empty-panel"><strong>Character not found</strong><span>Select another character and try again.</span></div>';
+    return;
+  }
+
+  panelBody.innerHTML = `
+    ${!state.characters.length ? `<div class="empty-panel"><strong>No characters yet</strong><span>Import a card or create a simple character to begin.</span></div>` : ''}
+    ${state.characters.map(character => renderCharacterItem(character)).join('')}`;
+}
+
+function renderCharacterItem(character) {
+  const active = character.id === state.settings.activeCharacterId;
+  return `
+    <div class="list-item rich ${active ? 'active' : ''}" data-panel-action="select-character" data-id="${character.id}">
+      <div class="image-thumb">${character.image ? `<img src="${character.image}" alt="" />` : ''}</div>
+      <div class="item-main"><div class="item-name">${escapeHtml(character.name)}</div><div class="item-desc">${escapeHtml(character.scenario || character.description || character.sourceName || 'character card')}</div></div>
+      <div class="item-actions">
+        <button class="branch-icon-button" data-panel-action="edit-character" data-id="${character.id}" title="Edit">${icons.edit}</button>
+        <button class="branch-icon-button" data-panel-action="export-character" data-id="${character.id}" title="Export">${icons.export}</button>
+        <button class="branch-icon-button danger" data-panel-action="delete-character" data-id="${character.id}" title="Delete">${icons.delete}</button>
+      </div>
+    </div>`;
 }
 
 function renderPersonas(panelTitle, panelSubtitle, panelActions, panelBody) {
   panelTitle.textContent = 'Personas';
   panelSubtitle.textContent = 'user identities';
-  panelActions.innerHTML = `<button class="panel-action-button" title="Import persona">${icons.import}</button><button class="panel-action-button" title="Create persona">${icons.add}</button>`;
-  panelBody.innerHTML = '<div class="list-item active"><div class="image-thumb"></div><div><div class="item-name">Unnamed traveler</div><div class="item-desc">blank persona for quick starts</div></div></div>';
+  panelActions.innerHTML = `<button class="panel-action-button" data-panel-action="show-persona-create" title="Create persona">${icons.add}</button>`;
+
+  if (state.panelMode === 'create-persona') {
+    panelBody.innerHTML = personaForm();
+    return;
+  }
+
+  panelBody.innerHTML = `
+    ${!state.personas.length ? `<div class="empty-panel"><strong>No personas yet</strong><span>Create a lightweight persona with a text description and optional image.</span></div>` : ''}
+    ${state.personas.map(persona => renderPersonaItem(persona)).join('')}`;
+}
+
+function renderPersonaItem(persona) {
+  const active = persona.id === state.settings.activePersonaId;
+  return `
+    <div class="list-item rich ${active ? 'active' : ''}" data-panel-action="select-persona" data-id="${persona.id}">
+      <div class="image-thumb">${persona.image ? `<img src="${persona.image}" alt="" />` : ''}</div>
+      <div class="item-main"><div class="item-name">${escapeHtml(persona.name)}</div><div class="item-desc">${escapeHtml(persona.description || 'persona')}</div></div>
+      <div class="item-actions"><button class="branch-icon-button danger" data-panel-action="delete-persona" data-id="${persona.id}" title="Delete">${icons.delete}</button></div>
+    </div>`;
 }
 
 function renderSettings(panelTitle, panelSubtitle, panelActions, panelBody) {
@@ -102,8 +200,41 @@ function renderSettings(panelTitle, panelSubtitle, panelActions, panelBody) {
   bindSettingsPanel();
 }
 
+function characterForm(character = null) {
+  const editing = Boolean(character);
+  const imagePreview = character?.image ? `<div class="current-image-preview"><img src="${character.image}" alt="" /><span>Current image is used for chat icons. Upload a file below to replace it.</span></div>` : '<div class="panel-note">No image is attached yet. Upload one to use it as this character\'s chat icon.</div>';
+  return `
+    <div class="panel-section creation-card">
+      <div class="section-title">|- ${editing ? 'Edit character' : 'Create character'}</div>
+      ${panelField('Name', 'characterName', character?.name || '')}
+      ${panelTextarea('Description', 'characterDescription', 'Appearance, premise, traits, and any card text.', character?.description || '')}
+      ${panelTextarea('Personality', 'characterPersonality', 'Optional personality notes.', character?.personality || '')}
+      ${panelTextarea('Scenario', 'characterScenario', 'Optional starting situation.', character?.scenario || '')}
+      ${panelTextarea('First message', 'characterFirstMessage', 'Optional greeting used when starting a new chat.', character?.firstMessage || '')}
+      ${panelTextarea('Example dialogue', 'characterExample', 'Optional examples.', character?.messageExample || '')}
+      ${panelTextarea('System prompt', 'characterSystemPrompt', 'Optional character-specific system prompt.', character?.systemPrompt || '')}
+      <div class="field"><label>${editing ? 'Replace image' : 'Optional image'}</label>${imagePreview}<input id="characterImage" type="file" accept="image/*" /></div>
+      <div class="form-actions"><button class="small-action" data-panel-action="cancel-panel-mode">Cancel</button><button class="send-btn" data-panel-action="${editing ? 'update-character' : 'create-character'}" ${editing ? `data-id="${character.id}"` : ''}>${editing ? 'Save' : 'Create'}</button></div>
+    </div>`;
+}
+
+function personaForm() {
+  return `
+    <div class="panel-section creation-card">
+      <div class="section-title">|- Create persona</div>
+      ${panelField('Name', 'personaName', '')}
+      ${panelTextarea('Persona text', 'personaDescription', 'A short description of who you are in chats.')}
+      <div class="field"><label>Optional image</label><input id="personaImage" type="file" accept="image/*" /></div>
+      <div class="form-actions"><button class="small-action" data-panel-action="cancel-panel-mode">Cancel</button><button class="send-btn" data-panel-action="create-persona">Create</button></div>
+    </div>`;
+}
+
 function panelField(label, id, value, type = 'text') {
   return `<div class="field"><label>${label}</label><input id="${id}" type="${type}" value="${escapeHtml(value ?? '')}" /></div>`;
+}
+
+function panelTextarea(label, id, placeholder = '', value = '') {
+  return `<div class="field"><label>${label}</label><textarea id="${id}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea></div>`;
 }
 
 function modelOptions() {
@@ -123,7 +254,6 @@ function bindConnectionPanel() {
   const save = async () => {
     state.settings = await saveSettings({
       ...state.settings,
-      proxyUrl: document.getElementById('settingProxyUrl').value.trim(),
       baseUrl: document.getElementById('settingBaseUrl').value.trim(),
       apiKey: document.getElementById('settingApiKey').value,
       model: document.getElementById('settingModel').value,
@@ -134,7 +264,7 @@ function bindConnectionPanel() {
     });
   };
 
-  ['settingProxyUrl', 'settingBaseUrl', 'settingApiKey', 'settingModel', 'settingTemperature', 'settingTopP', 'settingMaxContext', 'settingMaxOutput'].forEach(id => {
+  ['settingBaseUrl', 'settingApiKey', 'settingModel', 'settingTemperature', 'settingTopP', 'settingMaxContext', 'settingMaxOutput'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', save);
   });
 
