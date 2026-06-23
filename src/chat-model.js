@@ -30,7 +30,7 @@ export function createChat(title = 'New roleplay', character = null) {
     id: newId('chat'),
     title,
     characterId: character?.id || null,
-    characterName: character?.name || 'Kael the Wanderer',
+    characterName: character?.name || 'Character',
     activeLeafId: firstId,
     activeBranchId: branchId,
     branchBookmarks: [{ id: branchId, name: 'main thread', leafId: firstId, createdAt: now }],

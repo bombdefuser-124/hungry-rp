@@ -36,7 +36,7 @@ export function openSillyTavernImportDialog(scan) {
 
   return new Promise(resolve => {
     const users = scan.users || [];
-    const first = users[0] || { name: 'default-user', characters: [], personas: [], presets: [] };
+    const first = users[0] || { name: '', characters: [], personas: [], presets: [] };
     const overlay = document.createElement('div');
     overlay.className = 'inline-dialog-overlay';
     overlay.innerHTML = `
@@ -48,12 +48,12 @@ export function openSillyTavernImportDialog(scan) {
         <div class="inline-dialog-message">Select exactly what should be imported from userdata.</div>
         <label class="inline-dialog-label" for="sillyUserSelect">Userdata folder</label>
         <select id="sillyUserSelect" class="inline-dialog-input">
-          ${users.map(user => `<option value="${escapeHtml(user.name)}">${escapeHtml(user.name)}</option>`).join('') || `<option value="${escapeHtml(first.name)}">${escapeHtml(first.name)}</option>`}
+          ${users.map(user => `<option value="${escapeHtml(user.name)}">${escapeHtml(user.name)}</option>`).join('') || '<option value="">No profiles found</option>'}
         </select>
         <div class="import-option-list item-import-list" id="sillyImportOptions"></div>
         <div class="inline-dialog-actions">
           <button class="small-action" type="button" data-dialog-cancel>Cancel</button>
-          <button class="send-btn" type="button" data-dialog-confirm>Import selected</button>
+          <button class="send-btn" type="button" data-dialog-confirm ${users.length ? '' : 'disabled'}>Import selected</button>
         </div>
       </div>`;
 

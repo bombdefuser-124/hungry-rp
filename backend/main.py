@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import struct
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -16,39 +17,52 @@ from pydantic import BaseModel, Field
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+CONFIG_PATH = Path(os.environ.get("HUNGRY_RP_CONFIG", PROJECT_ROOT / "config.yaml")).expanduser().resolve()
 
 
-def default_config() -> dict[str, Any]:
-    return {
-        "proxy_url": "http://localhost:8025",
-        "provider": {
-            "base_url": "http://localhost:5000/v1",
-        },
-    }
-
-
-def ensure_config_file() -> None:
-    if CONFIG_PATH.exists():
-        return
-    CONFIG_PATH.write_text(yaml.safe_dump(default_config(), sort_keys=False), encoding="utf-8")
+def config_section(config: dict[str, Any], name: str) -> dict[str, Any]:
+    section = config.get(name)
+    return section if isinstance(section, dict) else {}
 
 
 def load_config() -> dict[str, Any]:
-    default = default_config()
-    ensure_config_file()
+    if not CONFIG_PATH.exists():
+        raise RuntimeError(f"Missing config file: {CONFIG_PATH}")
     with CONFIG_PATH.open("r", encoding="utf-8") as file:
         loaded = yaml.safe_load(file) or {}
-    provider = {**default["provider"], **(loaded.get("provider") or {})}
-    config = {**default, **loaded, "provider": provider}
-    return config
+    if not isinstance(loaded, dict):
+        loaded = {}
+    return {
+        "proxy_url": loaded.get("proxy_url") or "",
+        "frontend": config_section(loaded, "frontend"),
+        "backend": config_section(loaded, "backend"),
+        "provider": config_section(loaded, "provider"),
+    }
 
+
+def required_backend_config(config: dict[str, Any]) -> tuple[str, int]:
+    backend = config_section(config, "backend")
+    host = backend.get("host")
+    port = backend.get("port")
+    if not host or not port:
+        raise RuntimeError("backend.host and backend.port must be set in config.yaml")
+    return str(host), int(port)
+
+
+runtime_config = load_config()
+backend_config = config_section(runtime_config, "backend")
+frontend_config = config_section(runtime_config, "frontend")
+configured_origins = backend_config.get("cors_origins") or []
+cors_origins = [str(origin) for origin in configured_origins if origin]
+frontend_url = frontend_config.get("url")
+if frontend_url and frontend_url not in cors_origins:
+    cors_origins.append(str(frontend_url))
 
 app = FastAPI(title="hungry-rp proxy")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,10 +91,10 @@ class SillyTavernScanRequest(BaseModel):
 
 
 class SillyTavernImportRequest(SillyTavernScanRequest):
-    user: str = "default-user"
-    characters: list[str] = []
-    personas: list[str] = []
-    presets: list[str] = []
+    user: str = ""
+    characters: list[str] = Field(default_factory=list)
+    personas: list[str] = Field(default_factory=list)
+    presets: list[str] = Field(default_factory=list)
 
 
 def normalize_base_url(base_url: str) -> str:
@@ -109,11 +123,13 @@ async def health() -> dict[str, str]:
 @app.get("/api/config")
 async def config() -> dict[str, Any]:
     loaded = load_config()
-    provider = loaded.get("provider") or {}
+    provider = config_section(loaded, "provider")
+    frontend = config_section(loaded, "frontend")
     return {
-        "proxyUrl": loaded.get("proxy_url") or "http://localhost:8025",
+        "proxyUrl": loaded.get("proxy_url") or "",
+        "frontendUrl": frontend.get("url") or "",
         "provider": {
-            "baseUrl": provider.get("base_url") or "http://localhost:5000/v1",
+            "baseUrl": provider.get("base_url") or "",
             "apiKey": provider.get("api_key") or "",
             "model": provider.get("model") or "",
         },
@@ -137,7 +153,9 @@ def sillytavern_users(root: Path) -> list[Path]:
 
 def user_data_dir(root: Path, user: str) -> Path:
     users = {item.name: item for item in sillytavern_users(root)}
-    selected = users.get(user) or users.get("default-user") or next(iter(users.values()), None)
+    if user and user not in users:
+        raise HTTPException(status_code=400, detail=f"SillyTavern profile not found: {user}")
+    selected = users.get(user) if user else next(iter(users.values()), None)
     if not selected:
         raise HTTPException(status_code=400, detail="No SillyTavern userdata directories found")
     return selected
@@ -323,3 +341,10 @@ async def stream_provider(request: ChatStreamRequest) -> AsyncIterator[bytes]:
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatStreamRequest) -> StreamingResponse:
     return StreamingResponse(stream_provider(request), media_type="text/event-stream")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    host, port = required_backend_config(load_config())
+    uvicorn.run("backend.main:app", host=host, port=port, reload=True)

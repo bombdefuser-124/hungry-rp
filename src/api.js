@@ -1,13 +1,19 @@
-export const DEFAULT_PROXY_URL = 'http://localhost:8025';
+export const CONFIG_ENDPOINT = '/api/config';
 
 function proxyUrl(settings, path) {
-  const base = (settings.proxyUrl || DEFAULT_PROXY_URL).replace(/\/$/, '');
-  return `${base}${path}`;
+  const base = (settings.proxyUrl || '').replace(/\/$/, '');
+  return base ? `${base}${path}` : path;
 }
 
-export async function fetchBackendConfig(proxyBase = DEFAULT_PROXY_URL) {
-  const response = await fetch(`${proxyBase.replace(/\/$/, '')}/api/config`);
+export async function fetchBackendConfig(configEndpoint = CONFIG_ENDPOINT) {
+  const response = await fetch(configEndpoint);
   if (!response.ok) throw new Error(await response.text());
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Backend config endpoint did not return JSON. Restart the frontend so Vite loads config.yaml proxy settings.');
+  }
+
   return response.json();
 }
 

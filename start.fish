@@ -14,9 +14,40 @@ if not command -q npm
   exit 1
 end
 
+if not test -d .venv
+  uv venv .venv
+end
+
+source .venv/bin/activate.fish
+uv pip install -r requirements.txt
+
+if not test -d node_modules
+  npm install
+end
+
+function config_value
+  python -c "import yaml, sys; data=yaml.safe_load(open('config.yaml', encoding='utf-8')) or {}; cur=data
+for part in sys.argv[1].split('.'):
+    cur = cur.get(part, '') if isinstance(cur, dict) else ''
+print('' if cur is None else cur)" $argv[1]
+end
+
+set backend_port (config_value backend.port)
+set proxy_url (config_value proxy_url)
+set frontend_url (config_value frontend.url)
+
+if test -z "$backend_port"
+  echo "backend.port must be set in config.yaml"
+  exit 1
+end
+
 function pids_on_port
   set port $argv[1]
-  ss -ltnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u
+  if command -q ss
+    ss -ltnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u
+  else if command -q lsof
+    lsof -ti tcp:$port -sTCP:LISTEN 2>/dev/null | sort -u
+  end
 end
 
 function kill_pid_tree
@@ -58,9 +89,9 @@ function cleanup
     sleep 1
   end
 
-  set remaining_backend (pids_on_port 8025)
+  set remaining_backend (pids_on_port $backend_port)
   if test (count $remaining_backend) -gt 0
-    echo "Cleaning up proxy process on port 8025: $remaining_backend"
+    echo "Cleaning up proxy process on port $backend_port: $remaining_backend"
     kill_pid_tree $remaining_backend
   end
 end
@@ -69,32 +100,21 @@ function cleanup_on_exit --on-event fish_exit
   cleanup
 end
 
-if not test -d .venv
-  uv venv .venv
-end
+kill_port $backend_port
 
-source .venv/bin/activate.fish
-uv pip install -r requirements.txt
-
-if not test -d node_modules
-  npm install
-end
-
-kill_port 8025
-
-echo "Starting Python proxy on http://localhost:8025"
-python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8025 &
+echo "Starting Python proxy on $proxy_url"
+python -m backend.main &
 set backend_pid $last_pid
 
 sleep 1
-if test (count (pids_on_port 8025)) -eq 0
-  echo "Python proxy failed to start on port 8025"
+if test (count (pids_on_port $backend_port)) -eq 0
+  echo "Python proxy failed to start on port $backend_port"
   cleanup
   exit 1
 end
 
-echo "Starting Vite frontend on http://localhost:5173"
-npm run dev -- --host 0.0.0.0
+echo "Starting Vite frontend on $frontend_url"
+npm run dev
 set frontend_status $status
 
 cleanup

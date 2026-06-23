@@ -1,4 +1,4 @@
-import { fetchBackendConfig, DEFAULT_PROXY_URL } from './api.js';
+import { fetchBackendConfig } from './api.js';
 import { getChats, getSettings, getStoreItems, saveChat, saveSettings } from './db.js';
 import { bindShellEvents } from './events.js';
 import { createChat, persistActiveChat } from './chat-model.js';
@@ -10,16 +10,16 @@ async function init() {
   state.settings = await getSettings();
 
   try {
-    const config = await fetchBackendConfig(DEFAULT_PROXY_URL);
+    const config = await fetchBackendConfig();
     state.settings = await saveSettings({
       ...state.settings,
-      proxyUrl: config.proxyUrl || DEFAULT_PROXY_URL,
+      proxyUrl: config.proxyUrl || state.settings.proxyUrl,
       baseUrl: config.provider?.baseUrl || state.settings.baseUrl,
       apiKey: config.provider?.apiKey ?? state.settings.apiKey,
       model: state.settings.model || config.provider?.model || ''
     });
   } catch {
-    state.settings = await saveSettings({ ...state.settings, proxyUrl: DEFAULT_PROXY_URL });
+    state.settings = await saveSettings(state.settings);
   }
 
   state.chats = await getChats();
@@ -53,7 +53,7 @@ async function init() {
 
   const scopedChats = chatsForCharacter(character?.id || state.settings.activeCharacterId || '');
   if (!scopedChats.length) {
-    state.activeChat = createChat('session-001', character);
+    state.activeChat = createChat(undefined, character);
     await persistActiveChat();
   } else {
     state.activeChat = scopedChats[0];

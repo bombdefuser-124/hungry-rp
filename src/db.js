@@ -41,8 +41,8 @@ function requestToPromise(request) {
 
 export const defaultSettings = {
   id: 'global',
-  proxyUrl: 'http://localhost:8025',
-  baseUrl: 'http://localhost:5000/v1',
+  proxyUrl: '',
+  baseUrl: '',
   apiKey: '',
   model: '',
   activeCharacterId: '',

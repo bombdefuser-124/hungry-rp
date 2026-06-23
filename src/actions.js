@@ -463,7 +463,7 @@ export function exportActiveChat() {
 export async function importFromSillyTavern() {
   const path = await openTextDialog({
     title: 'Import from SillyTavern',
-    label: 'SillyTavern install path (e.g. /path/to/SillyTavern)',
+    label: 'SillyTavern install folder',
     value: '',
     confirmText: 'Scan'
   });
