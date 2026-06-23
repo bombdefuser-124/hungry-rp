@@ -13,7 +13,7 @@ import {
   setActiveBranch,
   setActiveLeaf
 } from './chat-model.js';
-import { characterToCard, createCharacterFromForm, createPersonaFromForm, fileToDataUrl, parseCharacterFile, parsePresetFilePayload, presetToExport } from './content-parsers.js';
+import { characterToCard, createCharacterFromForm, createDefaultPreset, createPersonaFromForm, fileToDataUrl, isContextSlotPrompt, parseCharacterFile, parsePresetFilePayload, presetToExport } from './content-parsers.js';
 import { openConfirmDialog, openTextDialog } from './dialog.js';
 import { createReasoningParser } from './reasoning.js';
 import { activeCharacter, activePersona, activePreset, state } from './state.js';
@@ -229,19 +229,29 @@ function providerMessagesUntilAssistant(assistantId) {
   const character = activeCharacterForChat();
   const persona = activePersona();
 
+  const history = activePath().filter(node => node.id !== assistantId).map(node => ({
+    role: node.role === 'assistant' ? 'assistant' : node.role,
+    content: node.content
+  }));
+
   if (preset) {
+    let insertedHistory = false;
     for (const prompt of (preset.prompts || []).filter(item => item.enabled !== false)) {
-      messages.push({ role: normalizeRole(prompt.role), content: prompt.content });
+      if (prompt.identifier === 'chatHistory') {
+        messages.push(...history);
+        insertedHistory = true;
+        continue;
+      }
+      const content = contentForPresetPrompt(prompt, character, persona);
+      if (content) messages.push({ role: normalizeRole(prompt.role), content });
     }
+    if (!insertedHistory) messages.push(...history);
+    return messages;
   }
 
   const context = buildRoleplayContext(character, persona);
   if (context) messages.push({ role: 'system', content: context });
-
-  return messages.concat(activePath().filter(node => node.id !== assistantId).map(node => ({
-    role: node.role === 'assistant' ? 'assistant' : node.role,
-    content: node.content
-  })));
+  return messages.concat(history);
 }
 
 function normalizeRole(role) {
@@ -253,6 +263,22 @@ function activeCharacterForChat() {
     return state.characters.find(character => character.id === state.activeChat.characterId) || activeCharacter();
   }
   return activeCharacter();
+}
+
+function contentForPresetPrompt(prompt, character, persona) {
+  if (!isContextSlotPrompt(prompt)) return renderTemplate(prompt.content || '', character, persona);
+
+  if (prompt.identifier === 'charDescription') return character?.description ? `Character description:\n${renderTemplate(character.description, character, persona)}` : '';
+  if (prompt.identifier === 'charPersonality') return character?.personality ? `Character personality:\n${renderTemplate(character.personality, character, persona)}` : '';
+  if (prompt.identifier === 'scenario') return character?.scenario ? `Scenario:\n${renderTemplate(character.scenario, character, persona)}` : '';
+  if (prompt.identifier === 'personaDescription') return persona ? `Persona (${persona.name}):\n${renderTemplate(persona.description || persona.name, character, persona)}` : '';
+  if (prompt.identifier === 'dialogueExamples') return character?.messageExample ? renderTemplate(character.messageExample, character, persona) : '';
+  if (prompt.identifier === 'worldInfoBefore' || prompt.identifier === 'worldInfoAfter') return '';
+  return '';
+}
+
+function renderTemplate(content, character, persona) {
+  return String(content || '').replaceAll('{{char}}', character?.name || 'the character').replaceAll('{{user}}', persona?.name || 'you');
 }
 
 function buildRoleplayContext(character, persona) {
@@ -267,7 +293,7 @@ function buildRoleplayContext(character, persona) {
     if (character.postHistoryInstructions) chunks.push(`Post-history instructions:\n${character.postHistoryInstructions}`);
   }
   if (persona) chunks.push(`{{user}} persona (${persona.name}):\n${persona.description || persona.name}`);
-  return chunks.join('\n\n').replaceAll('{{char}}', character?.name || 'the character').replaceAll('{{user}}', persona?.name || 'you');
+  return renderTemplate(chunks.join('\n\n'), character, persona);
 }
 
 export async function generateAssistant() {
@@ -571,16 +597,7 @@ export async function createEmptyPreset() {
   });
   if (name === null) return;
 
-  const preset = {
-    id: newId('preset'),
-    name: name.trim() || `Preset ${state.presets.length + 1}`,
-    sourceName: 'created in app',
-    prompts: [],
-    settings: {},
-    raw: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
+  const preset = createDefaultPreset(name.trim() || `Preset ${state.presets.length + 1}`);
 
   await saveStoreItem('presets', preset);
   state.presets = await getStoreItems('presets');
@@ -602,7 +619,8 @@ export async function addPromptToPreset() {
   if (name === null) return;
 
   preset.prompts = preset.prompts || [];
-  preset.prompts.push({
+  const insertAt = preset.prompts.findIndex(prompt => prompt.pinned || isContextSlotPrompt(prompt));
+  const prompt = {
     id: newId('prompt'),
     identifier: `prompt_${index}`,
     name: name.trim() || `Prompt ${index}`,
@@ -610,12 +628,16 @@ export async function addPromptToPreset() {
     content: '',
     enabled: true,
     expanded: true,
+    marker: false,
+    pinned: false,
     injectionPosition: 0,
     injectionDepth: 4,
     injectionOrder: index * 100,
     injectionTrigger: [],
     meta: {}
-  });
+  };
+  if (insertAt === -1) preset.prompts.push(prompt);
+  else preset.prompts.splice(insertAt, 0, prompt);
   preset.updatedAt = new Date().toISOString();
   await saveStoreItem('presets', preset);
   state.presets = await getStoreItems('presets');

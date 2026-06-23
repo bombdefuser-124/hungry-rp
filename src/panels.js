@@ -1,6 +1,7 @@
 import { fetchModels } from './api.js';
 import { saveSettings } from './db.js';
 import { applySettings } from './dom-settings.js';
+import { isContextSlotPrompt, isDefaultPresetPrompt } from './content-parsers.js';
 import { icons } from './icons.js';
 import { escapeHtml } from './reasoning.js';
 import { activeCharacter, activePersona, activePreset, state } from './state.js';
@@ -55,14 +56,14 @@ function renderConnections(panelTitle, panelSubtitle, panelActions, panelBody) {
 function renderPresets(panelTitle, panelSubtitle, panelActions, panelBody) {
   const preset = activePreset();
   panelTitle.textContent = 'Presets';
-  panelSubtitle.textContent = preset ? `${preset.prompts?.length || 0} parsed prompt blocks` : 'import Atelier-style JSON';
+  panelSubtitle.textContent = preset ? `${preset.prompts?.length || 0} context controls` : 'SillyTavern-compatible context control';
   panelActions.innerHTML = `<button class="panel-action-button" data-panel-action="create-empty-preset" title="Create empty preset">${icons.add}</button><button class="panel-action-button" data-panel-action="import-preset" title="Import preset">${icons.import}</button><button class="panel-action-button" data-panel-action="export-preset" title="Export preset">${icons.export}</button>${preset ? `<button class="panel-action-button danger" data-panel-action="delete-preset" data-id="${preset.id}" title="Delete preset">${icons.delete}</button>` : ''}`;
 
   if (!state.presets.length) {
     panelBody.innerHTML = `
       <div class="empty-panel">
         <strong>No presets yet</strong>
-        <span>Import a SillyTavern or Atelier-style JSON preset to parse prompt blocks, or create an empty one.</span>
+        <span>Import a SillyTavern preset, or create a preset with the default context slots already pinned at the bottom.</span>
         <div class="inline-button-row"><button class="small-action" data-panel-action="create-empty-preset">Create empty preset</button><button class="small-action" data-panel-action="import-preset">Import preset JSON</button></div>
       </div>`;
     return;
@@ -93,25 +94,53 @@ function renderPresets(panelTitle, panelSubtitle, panelActions, panelBody) {
 
 function renderPromptBlock(prompt, index) {
   const meta = prompt.meta || {};
-  const details = [meta.category, meta.badge].filter(Boolean).join(' // ');
+  const contextSlot = isContextSlotPrompt(prompt);
+  const defaultPrompt = isDefaultPresetPrompt(prompt);
+  const details = [
+    defaultPrompt ? 'default' : 'custom',
+    contextSlot ? 'context slot' : 'editable prompt',
+    meta.category,
+    meta.badge
+  ].filter(Boolean).join(' // ');
   const expanded = Boolean(prompt.expanded);
+  const roleControl = contextSlot
+    ? `<span class="prompt-role-static">${escapeHtml(prompt.role || 'system')}</span>`
+    : `<select class="prompt-role-select" data-id="${prompt.id}" title="Prompt role">${['system', 'user', 'assistant'].map(role => `<option value="${role}" ${role === (prompt.role || 'system') ? 'selected' : ''}>${role}</option>`).join('')}</select>`;
+  const expandedBody = contextSlot
+    ? `<div class="prompt-block-body"><div class="context-slot-note">${escapeHtml(contextSlotText(prompt))}</div></div>`
+    : `<div class="prompt-block-body"><textarea class="prompt-content-input" data-id="${prompt.id}" placeholder="Write this prompt block...">${escapeHtml(prompt.content || '')}</textarea></div>`;
+
   return `
-    <div class="prompt-block ${prompt.enabled === false ? 'disabled' : ''} ${expanded ? 'expanded' : 'collapsed'}">
+    <div class="prompt-block ${prompt.enabled === false ? 'disabled' : ''} ${expanded ? 'expanded' : 'collapsed'} ${defaultPrompt ? 'default-prompt' : ''}">
       <div class="prompt-block-head">
         <input class="toggle" type="checkbox" ${prompt.enabled !== false ? 'checked' : ''} data-panel-action="toggle-prompt" data-id="${prompt.id}" title="Enable prompt" />
         <div class="prompt-block-main">
           <div class="prompt-block-name">${String(index + 1).padStart(2, '0')} // ${escapeHtml(prompt.name)}</div>
-          <div class="prompt-block-meta">${escapeHtml(details || 'prompt block')}</div>
+          <div class="prompt-block-meta">${escapeHtml(details)}</div>
         </div>
         <div class="prompt-block-actions">
-          <select class="prompt-role-select" data-id="${prompt.id}" title="Prompt role">
-            ${['system', 'user', 'assistant'].map(role => `<option value="${role}" ${role === (prompt.role || 'system') ? 'selected' : ''}>${role}</option>`).join('')}
-          </select>
-          <button class="edit-block-button" data-panel-action="toggle-prompt-expanded" data-id="${prompt.id}" title="${expanded ? 'Hide prompt text' : 'Show prompt text'}">${expanded ? 'hide' : 'show'}</button>
+          ${roleControl}
+          <button class="edit-block-button" data-panel-action="toggle-prompt-expanded" data-id="${prompt.id}" title="${expanded ? 'Hide details' : 'Show details'}">${expanded ? 'hide' : 'show'}</button>
         </div>
       </div>
-      ${expanded ? `<div class="prompt-block-body"><textarea class="prompt-content-input" data-id="${prompt.id}" placeholder="Write this prompt block...">${escapeHtml(prompt.content || '')}</textarea></div>` : ''}
+      ${expanded ? expandedBody : ''}
     </div>`;
+}
+
+function contextSlotText(prompt) {
+  const character = activeCharacter();
+  const persona = activePersona();
+  const map = {
+    worldInfoBefore: 'Reserved slot for lore/world info before character context. World info is not implemented yet.',
+    personaDescription: persona ? `Filled from active persona: ${persona.description || persona.name}` : 'Filled from the active persona description when one is selected.',
+    charDescription: character ? `Filled from active character description: ${character.description || 'empty'}` : 'Filled from the active character description.',
+    charPersonality: character ? `Filled from active character personality: ${character.personality || 'empty'}` : 'Filled from the active character personality.',
+    scenario: character ? `Filled from active character scenario: ${character.scenario || 'empty'}` : 'Filled from the active character scenario.',
+    worldInfoAfter: 'Reserved slot for lore/world info after character context. World info is not implemented yet.',
+    dialogueExamples: character ? `Filled from active character example dialogue: ${character.messageExample || 'empty'}` : 'Filled from the active character example dialogue.',
+    chatHistory: 'Insertion point for the visible chat history. If disabled, chat history is appended after enabled preset prompts.'
+  };
+  return map[prompt.identifier] || 'Default context slot. It can be enabled or disabled, but its content is filled by the app.';
 }
 
 function renderCharacters(panelTitle, panelSubtitle, panelActions, panelBody) {

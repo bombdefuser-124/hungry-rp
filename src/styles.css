@@ -1460,3 +1460,30 @@ button, input, textarea, select { font-family: var(--mono); }
   outline: none;
   border-color: var(--accent);
 }
+
+.prompt-block.default-prompt {
+  border-style: dashed;
+}
+
+.prompt-role-static {
+  min-width: 72px;
+  display: inline-flex;
+  justify-content: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: rgba(10,10,10,0.28);
+  color: var(--text-muted);
+  padding: 3px 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.context-slot-note {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: rgba(10,10,10,0.28);
+}

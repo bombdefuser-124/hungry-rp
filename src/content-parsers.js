@@ -2,6 +2,32 @@ import { newId } from './chat-model.js';
 
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
+const DEFAULT_PRESET_PROMPTS = [
+  { identifier: 'main', name: 'Main Prompt', role: 'system', content: "Write {{char}}'s next reply in a fictional chat between {{char}} and {{user}}.", enabled: true, pinned: true },
+  { identifier: 'worldInfoBefore', name: 'World Info (before)', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'personaDescription', name: 'Persona Description', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'charDescription', name: 'Char Description', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'charPersonality', name: 'Char Personality', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'scenario', name: 'Scenario', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'enhanceDefinitions', name: 'Enhance Definitions', role: 'system', content: "If you have more knowledge of {{char}}, add to the character's lore and personality to enhance them but keep the Character Sheet's definitions absolute.", enabled: false, pinned: true },
+  { identifier: 'nsfw', name: 'Auxiliary Prompt', role: 'system', content: '', enabled: true, pinned: true },
+  { identifier: 'worldInfoAfter', name: 'World Info (after)', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'dialogueExamples', name: 'Chat Examples', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'chatHistory', name: 'Chat History', role: 'system', marker: true, enabled: true, pinned: true },
+  { identifier: 'jailbreak', name: 'Post-History Instructions', role: 'system', content: '', enabled: true, pinned: true }
+];
+
+export const CONTEXT_SLOT_PROMPTS = new Set(DEFAULT_PRESET_PROMPTS.filter(prompt => prompt.marker).map(prompt => prompt.identifier));
+export const DEFAULT_PRESET_PROMPT_IDS = new Set(DEFAULT_PRESET_PROMPTS.map(prompt => prompt.identifier));
+
+export function isContextSlotPrompt(prompt) {
+  return Boolean(prompt?.marker || CONTEXT_SLOT_PROMPTS.has(prompt?.identifier));
+}
+
+export function isDefaultPresetPrompt(prompt) {
+  return Boolean(prompt?.pinned || DEFAULT_PRESET_PROMPT_IDS.has(prompt?.identifier));
+}
+
 export async function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -98,7 +124,7 @@ export function parsePresetFilePayload(payload, sourceName = 'preset') {
     id: newId('preset'),
     name: payload.name || sourceName.replace(/\.json$/i, '') || 'Imported preset',
     sourceName,
-    prompts: prompts.map((prompt, index) => normalizePromptBlock(prompt, index)),
+    prompts: normalizePresetPrompts(prompts, payload.prompt_order),
     settings: extractPresetSettings(payload),
     raw: payload,
     createdAt: new Date().toISOString(),
@@ -106,23 +132,41 @@ export function parsePresetFilePayload(payload, sourceName = 'preset') {
   };
 }
 
+export function createDefaultPreset(name = 'New preset') {
+  return {
+    id: newId('preset'),
+    name,
+    sourceName: 'created in app',
+    prompts: DEFAULT_PRESET_PROMPTS.map((prompt, index) => normalizePromptBlock(prompt, index)),
+    settings: {},
+    raw: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
 export function presetToExport(preset) {
+  const prompts = preset.prompts || [];
   return {
     name: preset.name,
-    prompts: (preset.prompts || []).map(prompt => ({
+    prompts: prompts.map(prompt => ({
       identifier: prompt.identifier,
       name: prompt.name,
-      system_prompt: false,
-      marker: false,
+      system_prompt: Boolean(prompt.pinned || prompt.marker),
+      marker: Boolean(prompt.marker),
       role: prompt.role || 'system',
-      content: prompt.content || '',
+      content: prompt.marker ? undefined : prompt.content || '',
       enabled: prompt.enabled !== false,
       injection_position: prompt.injectionPosition ?? 0,
       injection_depth: prompt.injectionDepth ?? 4,
       injection_order: prompt.injectionOrder ?? 100,
       injection_trigger: prompt.injectionTrigger || [],
       forbid_overrides: false
-    }))
+    })),
+    prompt_order: [{
+      character_id: 100001,
+      order: prompts.map(prompt => ({ identifier: prompt.identifier, enabled: prompt.enabled !== false }))
+    }]
   };
 }
 
@@ -159,20 +203,61 @@ export function createPersonaFromForm(form) {
   };
 }
 
+function normalizePresetPrompts(prompts, promptOrder) {
+  const normalized = prompts.map((prompt, index) => normalizePromptBlock(prompt, index));
+  const byIdentifier = new Map(normalized.map(prompt => [prompt.identifier, prompt]));
+  const order = Array.isArray(promptOrder)
+    ? promptOrder.find(item => Array.isArray(item.order))?.order || []
+    : [];
+
+  if (!order.length) return ensureDefaultContextSlots(normalized);
+
+  const ordered = [];
+  for (const orderItem of order) {
+    const prompt = byIdentifier.get(orderItem.identifier) || normalizePromptBlock({ identifier: orderItem.identifier }, ordered.length);
+    prompt.enabled = orderItem.enabled !== false;
+    ordered.push(prompt);
+    byIdentifier.delete(orderItem.identifier);
+  }
+
+  return ensureDefaultContextSlots([...ordered, ...byIdentifier.values()]);
+}
+
+function ensureDefaultContextSlots(prompts) {
+  const existing = new Set(prompts.map(prompt => prompt.identifier));
+  const missing = DEFAULT_PRESET_PROMPTS
+    .filter(prompt => !existing.has(prompt.identifier))
+    .map((prompt, index) => normalizePromptBlock(prompt, prompts.length + index));
+  return orderDefaultPromptsLast([...prompts, ...missing]);
+}
+
+function orderDefaultPromptsLast(prompts) {
+  const custom = prompts.filter(prompt => !isDefaultPresetPrompt(prompt));
+  const defaults = DEFAULT_PRESET_PROMPTS
+    .map(defaultPrompt => prompts.find(prompt => prompt.identifier === defaultPrompt.identifier))
+    .filter(Boolean);
+  const otherPinned = prompts.filter(prompt => isDefaultPresetPrompt(prompt) && !DEFAULT_PRESET_PROMPT_IDS.has(prompt.identifier));
+  return [...custom, ...otherPinned, ...defaults];
+}
+
 function normalizePromptBlock(prompt, index) {
-  const content = prompt.content || '';
+  const fallback = DEFAULT_PRESET_PROMPTS.find(item => item.identifier === prompt.identifier) || {};
+  const content = prompt.content ?? fallback.content ?? '';
+  const marker = Boolean(prompt.marker ?? fallback.marker ?? false);
   return {
     id: prompt.id || newId('prompt'),
     identifier: prompt.identifier || `prompt_${index + 1}`,
-    name: prompt.name || prompt.identifier || `Prompt ${index + 1}`,
-    role: prompt.role || 'system',
+    name: prompt.name || fallback.name || prompt.identifier || `Prompt ${index + 1}`,
+    role: prompt.role || fallback.role || 'system',
     content,
-    enabled: prompt.enabled !== false,
+    enabled: prompt.enabled ?? fallback.enabled ?? true,
     expanded: false,
-    injectionPosition: prompt.injection_position ?? 0,
-    injectionDepth: prompt.injection_depth ?? 4,
-    injectionOrder: prompt.injection_order ?? 100,
-    injectionTrigger: prompt.injection_trigger || [],
+    marker,
+    pinned: Boolean(prompt.pinned ?? fallback.pinned ?? marker),
+    injectionPosition: prompt.injection_position ?? prompt.injectionPosition ?? 0,
+    injectionDepth: prompt.injection_depth ?? prompt.injectionDepth ?? 4,
+    injectionOrder: prompt.injection_order ?? prompt.injectionOrder ?? 100,
+    injectionTrigger: prompt.injection_trigger || prompt.injectionTrigger || [],
     meta: parsePromptMeta(content)
   };
 }
