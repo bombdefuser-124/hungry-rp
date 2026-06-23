@@ -4,7 +4,7 @@ import { icons } from './icons.js';
 import { renderPanel } from './panels.js';
 import { escapeHtml, formatMessageContent } from './reasoning.js';
 import { activePersona, state } from './state.js';
-import { setStatus } from './status.js';
+import { syncStatus } from './status.js';
 
 export function renderShell() {
   const appShell = document.getElementById('appShell');
@@ -69,7 +69,7 @@ export function render() {
   renderMessages();
   renderInputState();
   renderPanel();
-  setStatus(state.status);
+  syncStatus();
 }
 
 export function renderHeader() {
