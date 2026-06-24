@@ -38,6 +38,7 @@ print('' if cur is None else cur)" "$1"
 BACKEND_PORT=$(config_value backend.port)
 PROXY_URL=$(config_value proxy_url)
 FRONTEND_URL=$(config_value frontend.url)
+CLEANUP_STARTED=0
 
 if [ -z "$BACKEND_PORT" ]; then
   echo "backend.port must be set in config.yaml"
@@ -65,41 +66,43 @@ kill_pid_tree() {
   done
 }
 
-kill_port() {
-  port=$1
-  pids=$(pids_on_port "$port")
-  [ -z "$pids" ] && return 0
-
-  echo "Stopping stale process on port $port: $pids"
-  # shellcheck disable=SC2086
-  kill_pid_tree $pids
-  sleep 1
-
-  remaining=$(pids_on_port "$port")
-  if [ -n "$remaining" ]; then
-    echo "Force stopping remaining process on port $port: $remaining"
-    # shellcheck disable=SC2086
-    kill -KILL $remaining 2>/dev/null || true
-  fi
-}
-
 cleanup() {
+  if [ "$CLEANUP_STARTED" = "1" ]; then
+    return 0
+  fi
+  CLEANUP_STARTED=1
+
+  if [ -n "${FRONTEND_PID:-}" ]; then
+    kill_pid_tree "$FRONTEND_PID"
+    wait "$FRONTEND_PID" 2>/dev/null || true
+  fi
+
   if [ -n "${BACKEND_PID:-}" ]; then
     kill_pid_tree "$BACKEND_PID"
-    sleep 1
-  fi
-
-  remaining_backend=$(pids_on_port "$BACKEND_PORT")
-  if [ -n "$remaining_backend" ]; then
-    echo "Cleaning up proxy process on port $BACKEND_PORT: $remaining_backend"
-    # shellcheck disable=SC2086
-    kill_pid_tree $remaining_backend
+    wait "$BACKEND_PID" 2>/dev/null || true
   fi
 }
 
-trap cleanup EXIT INT TERM
+handle_interrupt() {
+  cleanup
+  exit 130
+}
 
-kill_port "$BACKEND_PORT"
+handle_term() {
+  cleanup
+  exit 143
+}
+
+trap cleanup EXIT
+trap handle_interrupt INT
+trap handle_term TERM
+
+EXISTING_BACKEND=$(pids_on_port "$BACKEND_PORT")
+if [ -n "$EXISTING_BACKEND" ]; then
+  echo "Backend port $BACKEND_PORT is already in use: $EXISTING_BACKEND"
+  echo "Stop that process yourself or change backend.port in config.yaml. This script will not kill unknown processes."
+  exit 1
+fi
 
 echo "Starting Python proxy on $PROXY_URL"
 python -m backend.main &
@@ -112,7 +115,10 @@ if [ -z "$(pids_on_port "$BACKEND_PORT")" ]; then
 fi
 
 echo "Starting Vite frontend on $FRONTEND_URL"
-npm run dev
+npm run dev &
+FRONTEND_PID=$!
+
+wait "$FRONTEND_PID"
 FRONTEND_STATUS=$?
 
 exit "$FRONTEND_STATUS"

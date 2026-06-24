@@ -36,16 +36,21 @@ if "%BACKEND_PORT%"=="" (
   exit /b 1
 )
 
-call :kill_port %BACKEND_PORT%
+call :port_open %BACKEND_PORT%
+if not errorlevel 1 (
+  echo Backend port %BACKEND_PORT% is already in use.
+  echo Stop that process yourself or change backend.port in config.yaml. This script will not kill unknown processes.
+  exit /b 1
+)
 
 echo Starting Python proxy on %PROXY_URL%
-start "hungry-rp backend" /B python -m backend.main
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$p = Start-Process -FilePath python -ArgumentList '-m','backend.main' -PassThru -WindowStyle Hidden; $p.Id"`) do set "BACKEND_PID=%%P"
 
 timeout /t 2 /nobreak >nul
 call :port_open %BACKEND_PORT%
 if errorlevel 1 (
   echo Python proxy failed to start on port %BACKEND_PORT%
-  call :kill_port %BACKEND_PORT%
+  call :cleanup_backend
   exit /b 1
 )
 
@@ -53,16 +58,15 @@ echo Starting Vite frontend on %FRONTEND_URL%
 npm run dev
 set "FRONTEND_STATUS=%ERRORLEVEL%"
 
-call :kill_port %BACKEND_PORT%
+call :cleanup_backend
 exit /b %FRONTEND_STATUS%
 
 :port_open
 netstat -ano | findstr /R /C:":%~1 .*LISTENING" >nul 2>nul
 exit /b %ERRORLEVEL%
 
-:kill_port
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%~1 .*LISTENING"') do (
-  echo Stopping stale process on port %~1: %%P
-  taskkill /PID %%P /T /F >nul 2>nul
+:cleanup_backend
+if not "%BACKEND_PID%"=="" (
+  taskkill /PID %BACKEND_PID% /T /F >nul 2>nul
 )
 exit /b 0
