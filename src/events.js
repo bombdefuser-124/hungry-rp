@@ -67,7 +67,7 @@ function bindSidePanel() {
     sidePanelCloseTimer = window.setTimeout(() => {
       if (document.body.classList.contains('image-lightbox-open')) return;
       appShell.classList.remove('panel-expanded');
-    }, 800);
+    }, 600);
   });
 }
 

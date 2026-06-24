@@ -489,8 +489,8 @@ button, input, textarea, select { font-family: var(--mono); }
   background: rgba(18,18,18,0.96);
   box-shadow: -18px 0 40px rgba(0,0,0,0.3);
   transition:
-    width 0.18s ease 0.2s,
-    box-shadow 0.18s ease 0.2s;
+    width var(--transition),
+    box-shadow var(--transition);
 }
 
 .side-panel:hover,
@@ -539,8 +539,8 @@ button, input, textarea, select { font-family: var(--mono); }
   transform: translateX(8px);
   pointer-events: none;
   transition:
-    opacity 0.16s ease 0.12s,
-    transform 0.16s ease 0.12s;
+    opacity var(--transition),
+    transform var(--transition);
 }
 
 .side-panel:hover .panel-main,
