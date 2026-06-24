@@ -544,6 +544,7 @@ export async function importCharacterFromPicker() {
 
 export async function createCharacterFromPanel() {
   try {
+    const imageData = document.getElementById('characterImageData')?.value || '';
     const imageFile = document.getElementById('characterImage')?.files?.[0];
     const character = createCharacterFromForm({
       name: document.getElementById('characterName')?.value.trim(),
@@ -553,7 +554,7 @@ export async function createCharacterFromPanel() {
       firstMessage: document.getElementById('characterFirstMessage')?.value.trim(),
       messageExample: document.getElementById('characterExample')?.value.trim(),
       systemPrompt: document.getElementById('characterSystemPrompt')?.value.trim(),
-      image: imageFile ? await fileToDataUrl(imageFile) : null
+      image: imageData || (imageFile ? await fileToDataUrl(imageFile) : null)
     });
     await saveStoreItem('characters', character);
     state.characters = await getStoreItems('characters');
@@ -574,6 +575,7 @@ export async function updateCharacterFromPanel(id) {
   }
 
   try {
+    const imageData = document.getElementById('characterImageData')?.value || '';
     const imageFile = document.getElementById('characterImage')?.files?.[0];
     const updated = {
       ...current,
@@ -584,7 +586,7 @@ export async function updateCharacterFromPanel(id) {
       firstMessage: document.getElementById('characterFirstMessage')?.value.trim() || '',
       messageExample: document.getElementById('characterExample')?.value.trim() || '',
       systemPrompt: document.getElementById('characterSystemPrompt')?.value.trim() || '',
-      image: imageFile ? await fileToDataUrl(imageFile) : current.image,
+      image: imageData || (imageFile ? await fileToDataUrl(imageFile) : current.image),
       updatedAt: new Date().toISOString()
     };
 

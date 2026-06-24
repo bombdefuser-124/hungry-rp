@@ -347,4 +347,4 @@ if __name__ == "__main__":
     import uvicorn
 
     host, port = required_backend_config(load_config())
-    uvicorn.run("backend.main:app", host=host, port=port, reload=True)
+    uvicorn.run("backend.main:app", host=host, port=port, reload=False)

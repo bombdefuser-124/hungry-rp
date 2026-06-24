@@ -1,7 +1,7 @@
 import { fetchModels } from './api.js';
 import { saveSettings } from './db.js';
 import { applySettings } from './dom-settings.js';
-import { isContextSlotPrompt, isDefaultPresetPrompt } from './content-parsers.js';
+import { fileToDataUrl, isContextSlotPrompt, isDefaultPresetPrompt } from './content-parsers.js';
 import { icons } from './icons.js';
 import { wireImageOrientation } from './image-orientation.js';
 import { escapeHtml } from './reasoning.js';
@@ -26,6 +26,7 @@ export function renderPanel() {
   };
 
   views[state.activeView]?.(panelTitle, panelSubtitle, panelActions, panelBody);
+  bindCharacterImageEditor(panelBody);
   wireImageOrientation(panelBody);
 }
 
@@ -239,20 +240,153 @@ function renderSettings(panelTitle, panelSubtitle, panelActions, panelBody) {
 
 function characterForm(character = null) {
   const editing = Boolean(character);
-  const imagePreview = character?.image ? `<div class="current-image-preview image-frame"><img data-detect-orientation src="${character.image}" alt="" /><span>Current image is used for chat icons. Upload a file below to replace it.</span></div>` : '<div class="panel-note">No image is attached yet. Upload one to use it as this character\'s chat icon.</div>';
   return `
     <div class="panel-section creation-card">
       <div class="section-title">|- ${editing ? 'Edit character' : 'Create character'}</div>
       ${panelField('Name', 'characterName', character?.name || '')}
+      ${characterImageEditor(character)}
       ${panelTextarea('Description', 'characterDescription', 'Appearance, premise, traits, and any card text.', character?.description || '')}
       ${panelTextarea('Personality', 'characterPersonality', 'Optional personality notes.', character?.personality || '')}
       ${panelTextarea('Scenario', 'characterScenario', 'Optional starting situation.', character?.scenario || '')}
       ${panelTextarea('First message', 'characterFirstMessage', 'Optional greeting used when starting a new chat.', character?.firstMessage || '')}
       ${panelTextarea('Example dialogue', 'characterExample', 'Optional examples.', character?.messageExample || '')}
       ${panelTextarea('System prompt', 'characterSystemPrompt', 'Optional character-specific system prompt.', character?.systemPrompt || '')}
-      <div class="field"><label>${editing ? 'Replace image' : 'Optional image'}</label>${imagePreview}<input id="characterImage" type="file" accept="image/*" /></div>
       <div class="form-actions"><button class="small-action" data-panel-action="cancel-panel-mode">Cancel</button><button class="send-btn" data-panel-action="${editing ? 'update-character' : 'create-character'}" ${editing ? `data-id="${character.id}"` : ''}>${editing ? 'Save' : 'Create'}</button></div>
     </div>`;
+}
+
+function characterImageEditor(character = null) {
+  const hasImage = Boolean(character?.image);
+  return `
+    <div class="field image-editor-field" data-character-image-editor>
+      <label>Character icon</label>
+      <input id="characterImage" class="image-editor-input" type="file" accept="image/*" />
+      <input id="characterImageData" type="hidden" value="" />
+      <img id="characterImageSource" ${hasImage ? `src="${escapeHtml(character.image)}"` : ''} alt="" hidden />
+      <div class="image-editor-card">
+        <div class="image-editor-preview square" id="characterImagePreviewFrame">
+          <canvas id="characterImageCanvas" aria-label="Character icon preview"></canvas>
+          <div class="image-editor-empty" id="characterImageEmpty">${hasImage ? 'Preparing preview...' : 'No icon yet'}</div>
+        </div>
+        <div class="image-editor-controls">
+          <div class="image-editor-upload-row">
+            <button class="small-action image-pick-button" id="characterImagePick" type="button">${hasImage ? 'Replace image' : 'Upload image'}</button>
+            <span class="image-file-name" id="characterImageFileName">${hasImage ? 'Current character icon' : 'PNG, JPG, WEBP'}</span>
+          </div>
+          <div class="image-ratio-toggle" aria-label="Crop shape">
+            <button class="image-ratio-button active" type="button" data-image-ratio="square">Square</button>
+            <button class="image-ratio-button" type="button" data-image-ratio="portrait">Portrait</button>
+          </div>
+          <label class="image-slider-row">Zoom <input id="characterImageZoom" type="range" min="1" max="3" step="0.01" value="1" /></label>
+          <div class="two-col image-pan-grid">
+            <label class="image-slider-row">X <input id="characterImagePanX" type="range" min="-100" max="100" step="1" value="0" /></label>
+            <label class="image-slider-row">Y <input id="characterImagePanY" type="range" min="-100" max="100" step="1" value="0" /></label>
+          </div>
+          <div class="panel-note">The preview is the saved icon. Choose square for compact avatars or portrait for taller character art.</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindCharacterImageEditor(root) {
+  const editor = root.querySelector('[data-character-image-editor]');
+  if (!editor || editor.dataset.bound === 'true') return;
+  editor.dataset.bound = 'true';
+
+  const input = editor.querySelector('#characterImage');
+  const hidden = editor.querySelector('#characterImageData');
+  const sourceElement = editor.querySelector('#characterImageSource');
+  const pickButton = editor.querySelector('#characterImagePick');
+  const fileName = editor.querySelector('#characterImageFileName');
+  const frame = editor.querySelector('#characterImagePreviewFrame');
+  const empty = editor.querySelector('#characterImageEmpty');
+  const canvas = editor.querySelector('#characterImageCanvas');
+  const zoom = editor.querySelector('#characterImageZoom');
+  const panX = editor.querySelector('#characterImagePanX');
+  const panY = editor.querySelector('#characterImagePanY');
+  const ratioButtons = [...editor.querySelectorAll('[data-image-ratio]')];
+  const context = canvas.getContext('2d');
+  const source = new Image();
+  let ratio = 'square';
+  let dirty = false;
+  let loaded = false;
+
+  const markDirty = () => {
+    dirty = true;
+    drawPreview();
+  };
+
+  const setRatio = (nextRatio, shouldMarkDirty = true) => {
+    ratio = nextRatio;
+    frame.classList.toggle('portrait', ratio === 'portrait');
+    frame.classList.toggle('square', ratio !== 'portrait');
+    ratioButtons.forEach(button => button.classList.toggle('active', button.dataset.imageRatio === ratio));
+    if (shouldMarkDirty) markDirty();
+    else drawPreview();
+  };
+
+  const resetCrop = () => {
+    zoom.value = '1';
+    panX.value = '0';
+    panY.value = '0';
+  };
+
+  const drawPreview = () => {
+    const width = ratio === 'portrait' ? 768 : 768;
+    const height = ratio === 'portrait' ? 1024 : 768;
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+
+    if (!loaded) {
+      hidden.value = '';
+      empty.hidden = false;
+      return;
+    }
+
+    empty.hidden = true;
+    const scale = Math.max(width / source.naturalWidth, height / source.naturalHeight) * Number(zoom.value || 1);
+    const drawWidth = source.naturalWidth * scale;
+    const drawHeight = source.naturalHeight * scale;
+    const maxOffsetX = Math.max(0, (drawWidth - width) / 2);
+    const maxOffsetY = Math.max(0, (drawHeight - height) / 2);
+    const offsetX = (Number(panX.value || 0) / 100) * maxOffsetX;
+    const offsetY = (Number(panY.value || 0) / 100) * maxOffsetY;
+    const drawX = ((width - drawWidth) / 2) + offsetX;
+    const drawY = ((height - drawHeight) / 2) + offsetY;
+
+    context.drawImage(source, drawX, drawY, drawWidth, drawHeight);
+    hidden.value = dirty || input.files?.[0] ? canvas.toDataURL('image/png') : '';
+  };
+
+  const loadSource = async dataUrl => {
+    source.onload = () => {
+      loaded = true;
+      setRatio(source.naturalHeight > source.naturalWidth ? 'portrait' : 'square', false);
+    };
+    source.src = dataUrl;
+  };
+
+  pickButton.addEventListener('click', () => input.click());
+
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    dirty = true;
+    loaded = false;
+    resetCrop();
+    fileName.textContent = file.name;
+    await loadSource(await fileToDataUrl(file));
+  });
+
+  ratioButtons.forEach(button => {
+    button.addEventListener('click', () => setRatio(button.dataset.imageRatio));
+  });
+
+  [zoom, panX, panY].forEach(control => control.addEventListener('input', markDirty));
+
+  if (sourceElement?.getAttribute('src')) loadSource(sourceElement.getAttribute('src'));
+  else drawPreview();
 }
 
 function personaForm() {
