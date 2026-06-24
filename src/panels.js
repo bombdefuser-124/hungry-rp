@@ -1,12 +1,15 @@
 import { fetchModels } from './api.js';
-import { saveSettings } from './db.js';
+import { saveSettings, saveStoreItem } from './db.js';
 import { applySettings } from './dom-settings.js';
-import { fileToDataUrl, isContextSlotPrompt, isDefaultPresetPrompt } from './content-parsers.js';
+import { createImageThumbnail, fileToDataUrl, isContextSlotPrompt, isDefaultPresetPrompt } from './content-parsers.js';
+import { openImageDialog } from './dialog.js';
 import { icons } from './icons.js';
 import { wireImageOrientation } from './image-orientation.js';
 import { escapeHtml } from './reasoning.js';
 import { activeCharacter, activePersona, activePreset, state } from './state.js';
 import { setStatus } from './status.js';
+
+let thumbnailBackfillRunning = false;
 
 export function renderPanel() {
   const panelTitle = document.getElementById('panelTitle');
@@ -149,7 +152,7 @@ function contextSlotText(prompt) {
 function renderCharacters(panelTitle, panelSubtitle, panelActions, panelBody) {
   panelTitle.textContent = 'Characters';
   panelSubtitle.textContent = 'CCv3 JSON and PNG cards';
-  panelActions.innerHTML = `<button class="panel-action-button" data-panel-action="import-character" title="Import character">${icons.import}</button><button class="panel-action-button" data-panel-action="show-character-create" title="Create character">${icons.add}</button>${activeCharacter() ? `<button class="panel-action-button" data-panel-action="export-character" title="Export character">${icons.export}</button>` : ''}`;
+  panelActions.innerHTML = `<button class="panel-action-button" data-panel-action="import-character" title="Import character">${icons.import}</button>${activeCharacter() ? `<button class="panel-action-button" data-panel-action="export-character" title="Export character">${icons.export}</button>` : ''}<button class="panel-action-button" data-panel-action="show-character-create" title="Create character">${icons.add}</button>`;
 
   if (state.panelMode === 'create-character') {
     panelBody.innerHTML = characterForm();
@@ -165,13 +168,14 @@ function renderCharacters(panelTitle, panelSubtitle, panelActions, panelBody) {
   panelBody.innerHTML = `
     ${!state.characters.length ? `<div class="empty-panel"><strong>No characters yet</strong><span>Import a card or create a simple character to begin.</span></div>` : ''}
     ${state.characters.map(character => renderCharacterItem(character)).join('')}`;
+  backfillCharacterThumbnails();
 }
 
 function renderCharacterItem(character) {
   const active = character.id === state.settings.activeCharacterId;
   return `
     <div class="list-item rich ${active ? 'active' : ''}" data-panel-action="select-character" data-id="${character.id}">
-      <div class="image-thumb image-frame">${character.image ? `<img data-detect-orientation src="${character.image}" alt="" />` : ''}</div>
+      <div class="image-thumb image-frame">${character.thumbnail ? `<img data-detect-orientation src="${character.thumbnail}" alt="" />` : ''}</div>
       <div class="item-main"><div class="item-name">${escapeHtml(character.name)}</div><div class="item-desc">${escapeHtml(character.scenario || character.description || character.sourceName || 'character card')}</div></div>
       <div class="item-actions">
         <button class="branch-icon-button" data-panel-action="edit-character" data-id="${character.id}" title="Edit">${icons.edit}</button>
@@ -179,6 +183,37 @@ function renderCharacterItem(character) {
         <button class="branch-icon-button danger" data-panel-action="delete-character" data-id="${character.id}" title="Delete">${icons.delete}</button>
       </div>
     </div>`;
+}
+
+function backfillCharacterThumbnails() {
+  if (thumbnailBackfillRunning) return;
+  const missing = state.characters.filter(character => character.image && !character.thumbnail);
+  if (!missing.length) return;
+
+  thumbnailBackfillRunning = true;
+  window.setTimeout(async () => {
+    try {
+      for (const character of missing) {
+        await waitForIdle();
+        const thumbnail = await createImageThumbnail(character.image);
+        const updated = { ...character, thumbnail };
+        await saveStoreItem('characters', updated);
+        state.characters = state.characters.map(item => item.id === updated.id ? updated : item);
+      }
+      if (state.activeView === 'characters' && !state.panelMode) renderPanel();
+    } catch (error) {
+      setStatus(`Character thumbnail generation failed: ${error.message || String(error)}`);
+    } finally {
+      thumbnailBackfillRunning = false;
+    }
+  }, 0);
+}
+
+function waitForIdle() {
+  return new Promise(resolve => {
+    if ('requestIdleCallback' in window) window.requestIdleCallback(resolve, { timeout: 500 });
+    else window.setTimeout(resolve, 16);
+  });
 }
 
 function renderPersonas(panelTitle, panelSubtitle, panelActions, panelBody) {
@@ -264,10 +299,10 @@ function characterImageEditor(character = null) {
       <input id="characterImageData" type="hidden" value="" />
       <img id="characterImageSource" ${hasImage ? `src="${escapeHtml(character.image)}"` : ''} alt="" hidden />
       <div class="image-editor-card">
-        <div class="image-editor-preview square" id="characterImagePreviewFrame">
+        <button class="image-editor-preview square" id="characterImagePreviewFrame" type="button" aria-label="Open character icon preview">
           <canvas id="characterImageCanvas" aria-label="Character icon preview"></canvas>
           <div class="image-editor-empty" id="characterImageEmpty">${hasImage ? 'Preparing preview...' : 'No icon yet'}</div>
-        </div>
+        </button>
         <div class="image-editor-controls">
           <div class="image-editor-upload-row">
             <button class="small-action image-pick-button" id="characterImagePick" type="button">${hasImage ? 'Replace image' : 'Upload image'}</button>
@@ -366,6 +401,11 @@ function bindCharacterImageEditor(root) {
     };
     source.src = dataUrl;
   };
+
+  frame.addEventListener('click', () => {
+    const preview = hidden.value || source.src;
+    if (loaded && preview) openImageDialog({ src: preview, title: 'Character icon preview' });
+  });
 
   pickButton.addEventListener('click', () => input.click());
 

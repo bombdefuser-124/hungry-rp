@@ -13,7 +13,7 @@ import {
   setActiveBranch,
   setActiveLeaf
 } from './chat-model.js';
-import { characterToCard, createCharacterFromForm, createDefaultPreset, createPersonaFromForm, fileToDataUrl, isContextSlotPrompt, normalizeCharacterCard, parseCharacterFile, parsePresetFilePayload, presetToExport } from './content-parsers.js';
+import { characterToCard, createCharacterFromForm, createDefaultPreset, createImageThumbnail, createPersonaFromForm, fileToDataUrl, isContextSlotPrompt, normalizeCharacterCard, parseCharacterFile, parsePresetFilePayload, presetToExport } from './content-parsers.js';
 import { openConfirmDialog, openSillyTavernImportDialog, openTextDialog } from './dialog.js';
 import { createReasoningParser } from './reasoning.js';
 import { activeCharacter, activePersona, activePreset, chatsForCharacter, state } from './state.js';
@@ -487,6 +487,7 @@ export async function importFromSillyTavern() {
     let characterCount = 0;
     for (const item of imported.characters || []) {
       const character = normalizeCharacterCard(item.card, item.sourceName, item.image);
+      if (character.image) character.thumbnail = await createImageThumbnail(character.image);
       await saveStoreItem('characters', character);
       characterCount += 1;
       if (!state.settings.activeCharacterId) state.settings = await saveSettings({ ...state.settings, activeCharacterId: character.id });
@@ -531,6 +532,7 @@ export async function importCharacterFromPicker() {
   if (!file) return;
   try {
     const character = await parseCharacterFile(file);
+    if (character.image) character.thumbnail = await createImageThumbnail(character.image);
     await saveStoreItem('characters', character);
     state.characters = await getStoreItems('characters');
     state.settings = await saveSettings({ ...state.settings, activeCharacterId: character.id });
@@ -546,6 +548,7 @@ export async function createCharacterFromPanel() {
   try {
     const imageData = document.getElementById('characterImageData')?.value || '';
     const imageFile = document.getElementById('characterImage')?.files?.[0];
+    const image = imageData || (imageFile ? await fileToDataUrl(imageFile) : null);
     const character = createCharacterFromForm({
       name: document.getElementById('characterName')?.value.trim(),
       description: document.getElementById('characterDescription')?.value.trim(),
@@ -554,8 +557,9 @@ export async function createCharacterFromPanel() {
       firstMessage: document.getElementById('characterFirstMessage')?.value.trim(),
       messageExample: document.getElementById('characterExample')?.value.trim(),
       systemPrompt: document.getElementById('characterSystemPrompt')?.value.trim(),
-      image: imageData || (imageFile ? await fileToDataUrl(imageFile) : null)
+      image
     });
+    if (character.image) character.thumbnail = await createImageThumbnail(character.image);
     await saveStoreItem('characters', character);
     state.characters = await getStoreItems('characters');
     state.settings = await saveSettings({ ...state.settings, activeCharacterId: character.id });
@@ -577,6 +581,7 @@ export async function updateCharacterFromPanel(id) {
   try {
     const imageData = document.getElementById('characterImageData')?.value || '';
     const imageFile = document.getElementById('characterImage')?.files?.[0];
+    const replacementImage = imageData || (imageFile ? await fileToDataUrl(imageFile) : '');
     const updated = {
       ...current,
       name: document.getElementById('characterName')?.value.trim() || current.name || 'Unnamed character',
@@ -586,7 +591,8 @@ export async function updateCharacterFromPanel(id) {
       firstMessage: document.getElementById('characterFirstMessage')?.value.trim() || '',
       messageExample: document.getElementById('characterExample')?.value.trim() || '',
       systemPrompt: document.getElementById('characterSystemPrompt')?.value.trim() || '',
-      image: imageData || (imageFile ? await fileToDataUrl(imageFile) : current.image),
+      image: replacementImage || current.image,
+      thumbnail: replacementImage ? await createImageThumbnail(replacementImage) : current.thumbnail,
       updatedAt: new Date().toISOString()
     };
 

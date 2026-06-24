@@ -292,6 +292,10 @@ button, input, textarea, select { font-family: var(--mono); }
 .msg-card.system .msg-head { justify-content: center; }
 
 .msg-image {
+  appearance: none;
+  padding: 0;
+  cursor: zoom-in;
+  color: inherit;
   width: 62px;
   height: 62px;
   flex: 0 0 62px;
@@ -489,7 +493,8 @@ button, input, textarea, select { font-family: var(--mono); }
     box-shadow 0.18s ease 0.2s;
 }
 
-.side-panel:hover {
+.side-panel:hover,
+.app-shell.panel-expanded .side-panel {
   width: var(--expanded-panel-width);
   box-shadow: -24px 0 60px rgba(0,0,0,0.45);
   transition-delay: 0s, 0s;
@@ -538,7 +543,8 @@ button, input, textarea, select { font-family: var(--mono); }
     transform 0.16s ease 0.12s;
 }
 
-.side-panel:hover .panel-main {
+.side-panel:hover .panel-main,
+.app-shell.panel-expanded .panel-main {
   opacity: 1;
   transform: translateX(0);
   pointer-events: auto;
@@ -957,6 +963,9 @@ button, input, textarea, select { font-family: var(--mono); }
 }
 
 .image-editor-preview {
+  appearance: none;
+  padding: 0;
+  cursor: zoom-in;
   position: relative;
   width: 118px;
   height: 118px;
@@ -970,6 +979,11 @@ button, input, textarea, select { font-family: var(--mono); }
   background-position: 0 0, 8px 8px;
   background-size: 16px 16px;
   box-shadow: 0 14px 32px rgba(0,0,0,0.32);
+}
+
+.image-editor-preview:hover,
+.msg-image:hover {
+  border-color: var(--accent);
 }
 
 .image-editor-preview.portrait {
@@ -1437,6 +1451,30 @@ button, input, textarea, select { font-family: var(--mono); }
   line-height: 1.6;
   padding: 8px 0 2px;
 }
+
+.image-lightbox-overlay {
+  padding: 24px;
+}
+
+.image-lightbox {
+  position: relative;
+  max-width: min(92vw, 1100px);
+  max-height: 90vh;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: rgba(12,12,12,0.96);
+  box-shadow: 0 28px 90px rgba(0,0,0,0.72);
+}
+
+.image-lightbox img {
+  display: block;
+  max-width: calc(92vw - 20px);
+  max-height: calc(90vh - 20px);
+  object-fit: contain;
+  border-radius: 6px;
+}
+
 
 .danger-action {
   background: #7a3131;

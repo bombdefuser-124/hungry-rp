@@ -72,6 +72,7 @@ export function normalizeCharacterCard(card, sourceName = 'character card', imag
     postHistoryInstructions: data.post_history_instructions || '',
     tags: Array.isArray(data.tags) ? data.tags : Array.isArray(card.tags) ? card.tags : [],
     image: image || imageFromCard(data, card),
+    thumbnail: null,
     sourceFormat: card.spec || 'json',
     sourceName,
     raw: card,
@@ -184,12 +185,40 @@ export function createCharacterFromForm(form) {
     postHistoryInstructions: '',
     tags: [],
     image: form.image || null,
+    thumbnail: form.thumbnail || null,
     sourceFormat: 'created',
     sourceName: 'created in app',
     raw: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
+}
+
+export async function createImageThumbnail(image, mode = 'auto') {
+  if (!image) return null;
+
+  const loaded = await loadImage(image);
+  const portrait = mode === 'portrait' || (mode === 'auto' && loaded.naturalHeight > loaded.naturalWidth);
+  const width = 192;
+  const height = portrait ? 256 : 192;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  const scale = Math.max(width / loaded.naturalWidth, height / loaded.naturalHeight);
+  const drawWidth = loaded.naturalWidth * scale;
+  const drawHeight = loaded.naturalHeight * scale;
+  context.drawImage(loaded, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+  return canvas.toDataURL('image/webp', 0.82);
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Image could not be loaded.'));
+    image.src = src;
+  });
 }
 
 export function createPersonaFromForm(form) {

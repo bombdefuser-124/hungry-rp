@@ -31,6 +31,23 @@ export function openTextDialog({ title, label, value = '', confirmText = 'Save',
   });
 }
 
+export function openImageDialog({ src, title = 'Image preview' }) {
+  if (!src) return;
+  closeDialog();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'inline-dialog-overlay image-lightbox-overlay';
+  overlay.innerHTML = `
+    <div class="image-lightbox" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" tabindex="-1">
+      <img src="${escapeHtml(src)}" alt="${escapeHtml(title)}" />
+    </div>`;
+
+  document.body.classList.add('image-lightbox-open');
+  document.getElementById('appShell')?.classList.add('panel-expanded');
+  mountDialog(overlay, () => {}, () => null, false);
+  overlay.querySelector('.image-lightbox')?.focus();
+}
+
 export function openSillyTavernImportDialog(scan) {
   closeDialog();
 
@@ -43,7 +60,6 @@ export function openSillyTavernImportDialog(scan) {
       <div class="inline-dialog wide-dialog" role="dialog" aria-modal="true" aria-labelledby="inlineDialogTitle">
         <div class="inline-dialog-head">
           <div class="inline-dialog-title" id="inlineDialogTitle">Import from SillyTavern</div>
-          <button class="inline-dialog-close" type="button" data-dialog-cancel aria-label="Close">x</button>
         </div>
         <div class="inline-dialog-message">Select exactly what should be imported from userdata.</div>
         <label class="inline-dialog-label" for="sillyUserSelect">Userdata folder</label>
@@ -156,6 +172,9 @@ function mountDialog(overlay, resolve, getValue, multiline) {
 
 function closeDialog() {
   if (!activeDialog) return;
+  if (activeDialog.overlay.classList.contains('image-lightbox-overlay')) {
+    document.body.classList.remove('image-lightbox-open');
+  }
   activeDialog.overlay.remove();
   activeDialog = null;
 }

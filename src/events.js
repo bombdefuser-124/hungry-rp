@@ -37,8 +37,9 @@ import {
   updatePresetPromptContent,
   updatePresetPromptRole
 } from './actions.js';
+import { openImageDialog } from './dialog.js';
 import { renderPanel } from './panels.js';
-import { activeCharacter, activePreset, state } from './state.js';
+import { activeCharacter, activePersona, activePreset, state } from './state.js';
 import { isAtMessageBottom, scrollMessagesToBottom, updateScrollDownButton } from './ui.js';
 
 export function bindShellEvents() {
@@ -63,7 +64,10 @@ function bindSidePanel() {
 
   sidePanel.addEventListener('mouseleave', () => {
     window.clearTimeout(sidePanelCloseTimer);
-    sidePanelCloseTimer = window.setTimeout(() => appShell.classList.remove('panel-expanded'), 220);
+    sidePanelCloseTimer = window.setTimeout(() => {
+      if (document.body.classList.contains('image-lightbox-open')) return;
+      appShell.classList.remove('panel-expanded');
+    }, 800);
   });
 }
 
@@ -116,6 +120,15 @@ function bindReplyInput() {
 }
 
 async function handleDocumentClick(event) {
+  const imageButton = event.target.closest('[data-open-message-image]');
+  if (imageButton) {
+    event.preventDefault();
+    const node = nodeById(imageButton.dataset.messageId);
+    const image = imageForMessage(node);
+    if (image) openImageDialog({ src: image, title: imageTitleForMessage(node) });
+    return;
+  }
+
   const panelButton = event.target.closest('[data-panel-action]');
   if (panelButton) {
     event.preventDefault();
@@ -151,6 +164,22 @@ async function handleDocumentClick(event) {
 
   const branchRow = event.target.closest('.branch-row[data-branch-id]');
   if (branchRow) await switchBranch(branchRow.dataset.branchId);
+}
+
+function imageForMessage(node) {
+  if (!node || node.role === 'system') return '';
+  if (node.role === 'user') return activePersona()?.image || '';
+  if (node.role === 'assistant') {
+    const character = state.characters.find(item => item.id === state.activeChat?.characterId) || activeCharacter();
+    return character?.image || '';
+  }
+  return '';
+}
+
+function imageTitleForMessage(node) {
+  if (node?.role === 'user') return activePersona()?.name || 'Persona image';
+  if (node?.role === 'assistant') return activeCharacter()?.name || state.activeChat?.characterName || 'Character image';
+  return 'Image preview';
 }
 
 async function handlePanelAction({ action, id, role, content } = {}) {
