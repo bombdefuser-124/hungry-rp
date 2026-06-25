@@ -139,7 +139,7 @@ export function renderMessageUpdate(node) {
 
   const existing = messages.querySelector(`.msg-card[data-message-id="${CSS.escape(node.id)}"]`);
   if (!existing) {
-    renderMessages();
+    if (!node.streaming) renderMessages();
     return;
   }
 
