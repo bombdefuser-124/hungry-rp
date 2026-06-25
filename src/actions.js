@@ -17,8 +17,9 @@ import { characterToCard, createCharacterFromForm, createDefaultPreset, createIm
 import { openConfirmDialog, openSillyTavernImportDialog, openTextDialog } from './dialog.js';
 import { createReasoningParser } from './reasoning.js';
 import { activeCharacter, activePersona, activePreset, chatsForCharacter, state } from './state.js';
+import { renderTemplate } from './templates.js';
 import { setStatus } from './status.js';
-import { render, renderMessages } from './ui.js';
+import { render, renderMessageUpdate } from './ui.js';
 
 function currentCharacterChats() {
   const character = activeCharacter();
@@ -251,7 +252,7 @@ function providerMessagesUntilAssistant(assistantId) {
 
   const history = activePath().filter(node => node.id !== assistantId).map(node => ({
     role: node.role === 'assistant' ? 'assistant' : node.role,
-    content: node.content
+    content: renderTemplate(node.content, character, persona)
   }));
 
   if (preset) {
@@ -295,10 +296,6 @@ function contentForPresetPrompt(prompt, character, persona) {
   if (prompt.identifier === 'dialogueExamples') return character?.messageExample ? renderTemplate(character.messageExample, character, persona) : '';
   if (prompt.identifier === 'worldInfoBefore' || prompt.identifier === 'worldInfoAfter') return '';
   return '';
-}
-
-function renderTemplate(content, character, persona) {
-  return String(content || '').replaceAll('{{char}}', character?.name || 'the character').replaceAll('{{user}}', persona?.name || 'you');
 }
 
 function buildRoleplayContext(character, persona) {
@@ -365,7 +362,7 @@ export async function generateAssistant() {
     if (renderTimer) return;
     renderTimer = window.setTimeout(() => {
       renderTimer = null;
-      renderMessages();
+      renderMessageUpdate(assistant);
     }, 80);
   };
 

@@ -40,6 +40,7 @@ import {
 import { openImageDialog } from './dialog.js';
 import { renderPanel } from './panels.js';
 import { activeCharacter, activePersona, activePreset, state } from './state.js';
+import { renderTemplate } from './templates.js';
 import { isAtMessageBottom, scrollMessagesToBottom, updateScrollDownButton } from './ui.js';
 
 export function bindShellEvents() {
@@ -153,7 +154,7 @@ async function handleDocumentClick(event) {
     const node = nodeById(actionButton.dataset.messageId);
     if (!node) return;
 
-    if (action === 'copy') await navigator.clipboard.writeText(node.content || '');
+    if (action === 'copy') await navigator.clipboard.writeText(renderTemplate(node.content, characterForNode(node), activePersona()));
     if (action === 'branch') await branchFrom(node);
     if (action === 'edit') await editMessage(node);
     if (action === 'retry') await retryFrom(node);
@@ -166,11 +167,16 @@ async function handleDocumentClick(event) {
   if (branchRow) await switchBranch(branchRow.dataset.branchId);
 }
 
+function characterForNode(node) {
+  if (node?.role !== 'assistant') return activeCharacter();
+  return state.characters.find(item => item.id === state.activeChat?.characterId) || activeCharacter();
+}
+
 function imageForMessage(node) {
   if (!node || node.role === 'system') return '';
   if (node.role === 'user') return activePersona()?.image || '';
   if (node.role === 'assistant') {
-    const character = state.characters.find(item => item.id === state.activeChat?.characterId) || activeCharacter();
+    const character = characterForNode(node);
     return character?.image || '';
   }
   return '';

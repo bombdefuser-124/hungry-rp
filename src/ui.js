@@ -5,6 +5,7 @@ import { wireImageOrientation } from './image-orientation.js';
 import { renderPanel } from './panels.js';
 import { escapeHtml, formatMessageContent } from './reasoning.js';
 import { activePersona, chatsForCharacter, state } from './state.js';
+import { renderTemplate } from './templates.js';
 import { syncStatus } from './status.js';
 
 export function renderShell() {
@@ -116,9 +117,7 @@ export function renderInputState() {
 export function renderMessages() {
   const messages = document.getElementById('chatMessages');
   const path = activePath();
-  const wasAtBottom = isAtMessageBottom();
-  const shouldStick = state.autoScrollToBottom || wasAtBottom;
-  const previousScrollTop = messages.scrollTop;
+  const scrollState = captureMessageScrollState(messages);
 
   if (!path.length) {
     messages.innerHTML = state.activeChat
@@ -130,9 +129,38 @@ export function renderMessages() {
 
   messages.innerHTML = path.map(node => renderMessage(node)).join('');
   wireImageOrientation(messages);
-  if (shouldStick) scrollMessagesToBottom(false);
-  else messages.scrollTop = previousScrollTop;
+  restoreMessageScrollState(messages, scrollState);
   updateScrollDownButton();
+}
+
+export function renderMessageUpdate(node) {
+  const messages = document.getElementById('chatMessages');
+  if (!messages || !node) return;
+
+  const existing = messages.querySelector(`.msg-card[data-message-id="${CSS.escape(node.id)}"]`);
+  if (!existing) {
+    renderMessages();
+    return;
+  }
+
+  const scrollState = captureMessageScrollState(messages);
+  existing.outerHTML = renderMessage(node);
+  const replacement = messages.querySelector(`.msg-card[data-message-id="${CSS.escape(node.id)}"]`);
+  if (replacement) wireImageOrientation(replacement);
+  restoreMessageScrollState(messages, scrollState);
+  updateScrollDownButton();
+}
+
+function captureMessageScrollState(messages) {
+  return {
+    shouldStick: state.autoScrollToBottom || isAtMessageBottom(),
+    previousScrollTop: messages.scrollTop
+  };
+}
+
+function restoreMessageScrollState(messages, scrollState) {
+  if (scrollState.shouldStick) scrollMessagesToBottom(false);
+  else messages.scrollTop = scrollState.previousScrollTop;
 }
 
 export function isAtMessageBottom() {
@@ -161,6 +189,7 @@ function renderMessage(node) {
   const cssRole = node.role === 'assistant' ? 'ai' : node.role;
   const roleLabel = node.role === 'assistant' ? (state.activeChat.characterName || 'assistant') : node.role === 'user' ? (activePersona()?.name || 'you') : 'system';
   const portrait = portraitFor(node.role);
+  const renderedContent = renderTemplate(node.content, characterForActiveChat(), activePersona());
   const image = node.role === 'system' ? '<div class="msg-image hidden"></div>' : `<button class="msg-image image-frame" type="button" data-open-message-image data-message-id="${node.id}" aria-label="Open ${escapeHtml(roleLabel)} image"><img data-detect-orientation alt="${escapeHtml(roleLabel)} portrait" src="${portrait}" /></button>`;
   const reasoning = (node.reasoningBlocks || []).map(block => `
     <div class="reasoning-block ${block.collapsed ? 'collapsed' : ''}" data-reasoning-id="${block.id}">
@@ -182,16 +211,20 @@ function renderMessage(node) {
       <div class="msg-content">
         <div class="msg-head"><span class="msg-role ${node.role}">${escapeHtml(roleLabel)}</span><span class="msg-time">${new Date(node.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
         ${reasoning}
-        <div class="msg-text">${formatMessageContent(node.content)}</div>
+        <div class="msg-text">${formatMessageContent(renderedContent)}</div>
       </div>
       ${actions}
     </article>`;
 }
 
+function characterForActiveChat() {
+  return state.characters.find(item => item.id === state.activeChat?.characterId) || state.characters.find(item => item.id === state.settings?.activeCharacterId) || null;
+}
+
 function portraitFor(role) {
   if (role === 'user') return activePersona()?.thumbnail || activePersona()?.image || portraitSvg(role);
   if (role === 'assistant') {
-    const character = state.characters.find(item => item.id === state.activeChat?.characterId) || state.characters.find(item => item.id === state.settings?.activeCharacterId);
+    const character = characterForActiveChat();
     return character?.thumbnail || character?.image || portraitSvg(role);
   }
   return portraitSvg(role);

@@ -42,8 +42,14 @@ export function openImageDialog({ src, title = 'Image preview' }) {
       <img src="${escapeHtml(src)}" alt="${escapeHtml(title)}" />
     </div>`;
 
-  document.body.classList.add('image-lightbox-open');
-  document.getElementById('appShell')?.classList.add('panel-expanded');
+  const appShell = document.getElementById('appShell');
+  const sidePanel = document.getElementById('sidePanel');
+  const keepPanelOpen = Boolean(appShell?.classList.contains('panel-expanded') || sidePanel?.matches(':hover'));
+  if (keepPanelOpen) {
+    document.body.classList.add('image-lightbox-open');
+    appShell?.classList.add('panel-expanded');
+    overlay.dataset.keepPanelOpen = 'true';
+  }
   mountDialog(overlay, () => {}, () => null, false);
   overlay.querySelector('.image-lightbox')?.focus();
 }
@@ -172,9 +178,18 @@ function mountDialog(overlay, resolve, getValue, multiline) {
 
 function closeDialog() {
   if (!activeDialog) return;
-  if (activeDialog.overlay.classList.contains('image-lightbox-overlay')) {
+  const overlay = activeDialog.overlay;
+  const keptPanelOpen = overlay.dataset.keepPanelOpen === 'true';
+  if (overlay.classList.contains('image-lightbox-overlay')) {
     document.body.classList.remove('image-lightbox-open');
   }
-  activeDialog.overlay.remove();
+  overlay.remove();
   activeDialog = null;
+
+  if (keptPanelOpen) {
+    window.setTimeout(() => {
+      const sidePanel = document.getElementById('sidePanel');
+      if (!sidePanel?.matches(':hover')) document.getElementById('appShell')?.classList.remove('panel-expanded');
+    }, 0);
+  }
 }
